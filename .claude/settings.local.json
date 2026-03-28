@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/d/Miniforge/python.exe -m venv /e/fraud-detection-data-api/venv)"
+    ]
+  }
+}

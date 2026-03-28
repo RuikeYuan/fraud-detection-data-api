@@ -12,6 +12,7 @@ demo.py  —  Claude Agent 欺诈调查演示
   - 对 3 笔真实 PaySim 欺诈交易发起自动调查，生成结构化报告
 """
 
+import datetime
 import json
 import os
 import sys
@@ -19,6 +20,8 @@ from pathlib import Path
 
 import anthropic
 import httpx
+
+DEMO_SERVER = os.getenv("DEMO_SERVER", "http://localhost:8081")
 
 # ── 配置 ─────────────────────────────────────────────────────────────────────
 DATA_API_URL   = "http://localhost:8000"       # fraud-detection-data-api-main
@@ -124,20 +127,28 @@ def score_transaction(src: str, dst: str, amount: float, tx_type: str) -> str:
         risk_level = "HIGH"
         reason += f"；交易金额 {amount:,.2f} 异常偏高"
 
-    return json.dumps({
-        "src_account":    src,
-        "dst_account":    dst,
-        "amount":         amount,
-        "tx_type":        tx_type,
-        "src_fraud_prob": round(src_prob, 4),
-        "dst_fraud_prob": round(dst_prob, 4),
-        "max_prob":       round(max_prob, 4),
-        "risk_level":     risk_level,
-        "reason":         reason,
-        "model":          "GraphSAGE (PyTorch Geometric)",
-        "src_in_model":   src in FRAUD_PROBS,
-        "dst_in_model":   dst in FRAUD_PROBS,
-    }, ensure_ascii=False)
+    result = {
+        "ts":                datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "tx_id":             f"{src}-{dst}-{int(amount)}",
+        "src":               src,
+        "dst":               dst,
+        "amount":            amount,
+        "type":              tx_type,
+        "src_fraud_prob":    round(src_prob, 4),
+        "dst_fraud_prob":    round(dst_prob, 4),
+        "is_fraud_predicted": max_prob >= 0.5,
+        "risk_level":        risk_level,
+        "label":             0,
+    }
+
+    try:
+        httpx.post(f"{DEMO_SERVER}/ingest",
+                   content=json.dumps(result),
+                   timeout=2.0)
+    except Exception:
+        pass
+
+    return json.dumps(result, ensure_ascii=False)
 
 
 def get_account_profile(account_id: str) -> str:
