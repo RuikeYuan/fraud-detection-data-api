@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+pandas
+networkx
+torch
+torch-geometric
+redis[hiredis]
+websockets

@@ -1,0 +1,140 @@
+#
+# deploy.ps1 — One-click Azure infrastructure provisioning & app deployment
+# Usage:
+#   .\deploy.ps1 [-ResourceGroup <name>] [-Location <region>] [-Subscription <id>]
+#
+param(
+    [string]$ResourceGroup = "fraud-detection-rg",
+    [string]$Location = "swedencentral",
+    [string]$ImageTag = "latest",
+    [string]$Subscription = ""
+)
+
+$ErrorActionPreference = "Stop"
+
+# ─── 前置检查 ───
+Write-Host "=== Checking prerequisites ===" -ForegroundColor Cyan
+
+foreach ($cmd in @("az", "docker", "kubectl")) {
+    if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
+        Write-Host "ERROR: $cmd not found." -ForegroundColor Red
+        exit 1
+    }
+}
+
+# 检查 Azure 登录状态
+$acctCheck = az account show 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Not logged in to Azure. Run: az login" -ForegroundColor Red
+    exit 1
+}
+
+# 设置订阅
+if ($Subscription) {
+    Write-Host "  Setting subscription: $Subscription"
+    az account set --subscription $Subscription
+    if ($LASTEXITCODE -ne 0) { exit 1 }
+}
+
+# 验证订阅有效性
+$SubName = az account show --query "name" -o tsv 2>$null
+$SubId   = az account show --query "id" -o tsv 2>$null
+if ($SubName -like "*tenant level*" -or -not $SubId) {
+    Write-Host "ERROR: No valid Azure subscription found." -ForegroundColor Red
+    Write-Host "  Current: $SubName ($SubId)"
+    Write-Host ""
+    az account list --query "[].{Name:name, ID:id, State:state}" -o table
+    Write-Host ""
+    Write-Host "  Fix: az account set --subscription <ID>"
+    exit 1
+}
+
+Write-Host "  Subscription: $SubName ($SubId)"
+Write-Host "  Resource Group: $ResourceGroup"
+Write-Host "  Location: $Location"
+Write-Host ""
+
+# ─── 注册资源提供程序 ───
+function Register-AzProvider {
+    param([string]$Namespace)
+    $state = az provider show --namespace $Namespace --query "registrationState" -o tsv 2>$null
+    if ($state -ne "Registered") {
+        Write-Host "  Registering provider: $Namespace ..."
+        az provider register --namespace $Namespace 2>$null
+        for ($i = 0; $i -lt 30; $i++) {
+            $state = az provider show --namespace $Namespace --query "registrationState" -o tsv 2>$null
+            if ($state -eq "Registered") { break }
+            Write-Host "    Waiting for $Namespace ... ($state)"
+            Start-Sleep -Seconds 10
+        }
+        if ($state -ne "Registered") {
+            Write-Host "ERROR: Provider $Namespace registration timed out (state: $state)" -ForegroundColor Red
+            exit 1
+        }
+        Write-Host "  ${Namespace}: Registered" -ForegroundColor Green
+    } else {
+        Write-Host "  ${Namespace}: Already registered" -ForegroundColor Green
+    }
+}
+
+Write-Host "=== 0/5  Registering resource providers ===" -ForegroundColor Cyan
+Register-AzProvider "Microsoft.ContainerRegistry"
+Register-AzProvider "Microsoft.ContainerService"
+Register-AzProvider "Microsoft.OperationsManagement"
+
+# ─── 1. 创建资源组 ───
+Write-Host "=== 1/5  Creating resource group: $ResourceGroup ===" -ForegroundColor Cyan
+az group create --name $ResourceGroup --location $Location -o none
+if ($LASTEXITCODE -ne 0) { exit 1 }
+
+# ─── 2. 部署基础设施 ───
+Write-Host "=== 2/5  Deploying infrastructure (ACR + AKS) ===" -ForegroundColor Cyan
+$DeployOut = az deployment group create `
+    --resource-group $ResourceGroup `
+    --template-file azure/main.bicep `
+    --query "properties.outputs" -o json
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Bicep deployment failed." -ForegroundColor Red; exit 1 }
+
+$outputs  = $DeployOut | ConvertFrom-Json
+$AcrName        = $outputs.acrName.value
+$AcrLoginServer = $outputs.acrLoginServer.value
+$AksName        = $outputs.aksName.value
+
+Write-Host "  ACR: $AcrLoginServer"
+Write-Host "  AKS: $AksName"
+
+# ─── 3. 构建并推送镜像 ───
+Write-Host "=== 3/5  Building & pushing Docker image ===" -ForegroundColor Cyan
+az acr login --name $AcrName
+if ($LASTEXITCODE -ne 0) { exit 1 }
+
+$Image = "${AcrLoginServer}/fraud-detection:${ImageTag}"
+docker build -t $Image .
+if ($LASTEXITCODE -ne 0) { exit 1 }
+docker push $Image
+if ($LASTEXITCODE -ne 0) { exit 1 }
+
+# ─── 4. 连接 AKS ───
+Write-Host "=== 4/5  Connecting to AKS ===" -ForegroundColor Cyan
+az aks get-credentials --resource-group $ResourceGroup --name $AksName --overwrite-existing
+if ($LASTEXITCODE -ne 0) { exit 1 }
+
+# ─── 5. 部署到 Kubernetes ───
+Write-Host "=== 5/5  Deploying to Kubernetes ===" -ForegroundColor Cyan
+$manifest = (Get-Content azure/k8s-deployment.yaml -Raw) `
+    -replace '__ACR_LOGIN_SERVER__', $AcrLoginServer `
+    -replace '__IMAGE_TAG__', $ImageTag
+
+$tempFile = [System.IO.Path]::GetTempFileName() + ".yaml"
+$manifest | Set-Content -Path $tempFile -Encoding UTF8
+kubectl apply -f $tempFile
+Remove-Item $tempFile -ErrorAction SilentlyContinue
+if ($LASTEXITCODE -ne 0) { exit 1 }
+
+kubectl rollout status deployment/fraud-detection-api -n fraud-detection --timeout=300s
+
+Write-Host ""
+Write-Host "=== Deployment complete ===" -ForegroundColor Green
+$ExternalIp = kubectl get svc fraud-detection-api -n fraud-detection -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
+if (-not $ExternalIp) { $ExternalIp = "pending" }
+Write-Host "API endpoint: http://${ExternalIp}/heterodata"
