@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Environment variables (real secrets)
+.env
+.env.local
+
+# Large checkpoint / data files
+fraud-detection-data-api-main/fraud-gnn-model/checkpoints/fraud_probs.json
+fraud-detection-data-api-main/fraud-gnn-model/checkpoints/builder.pkl
+
+# MS Word lock files
+~$*.docx
+
+# Local Claude Code config
+.claude/
+
+# Document generation scripts (internal tooling)
+gen_doc*.py
+gen_merge.py
+eda_part2.py
+setup_env.ps1
+
+# Word documents (large binary)
+*.docx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs (keep only training logs in checkpoints)
+*.log
+!fraud-detection-data-api-main/fraud-gnn-model/checkpoints/*.log
+
+# IDE
+.vscode/
+.idea/

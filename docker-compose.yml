@@ -1,0 +1,108 @@
+version: "3.9"
+
+services:
+
+  # ── Redis Stream (message broker) ────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: fraud-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Data Pipeline API (graph preprocessing) ──────────────────────────
+  data-api:
+    build:
+      context: ./fraud-detection-data-api-main/fraud-detection-data-api-main
+      dockerfile: Dockerfile
+    container_name: fraud-data-api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/stream/status')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── GraphSAGE Inference API ───────────────────────────────────────────
+  gnn-api:
+    build:
+      context: ./fraud-detection-data-api-main/fraud-gnn-model
+      dockerfile: Dockerfile
+    container_name: fraud-gnn-api
+    ports:
+      - "8001:8001"
+    environment:
+      - CHECKPOINT_DIR=/app/checkpoints
+      - REBUILD_INTERVAL=200
+      - DATA_API_URL=http://data-api:8000
+    depends_on:
+      data-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Stream Producer (PaySim CSV → Redis, 终端 3) ─────────────────────
+  stream-producer:
+    build:
+      context: ./fraud-detection-data-api-main/fraud-detection-data-api-main
+      dockerfile: Dockerfile
+    container_name: fraud-stream-producer
+    command: ["python", "run_stream.py", "--speed", "100"]
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - PAYSIM_CSV=/data/transactions.csv
+    volumes:
+      - ./fraud-detection-data-api-main/fraud-detection-data-api-main/data:/data:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: "no"   # 回放完一遍后自然退出
+
+  # ── Batch Scoring Server (Redis → scored results, 终端 2) ─────────────
+  batch-server:
+    build:
+      context: ./fraud-detection-data-api-main/fraud-gnn-model
+      dockerfile: Dockerfile
+    container_name: fraud-batch-server
+    command: ["python", "batch_server.py"]
+    ports:
+      - "8091:8091"
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8091/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Demo Frontend (Claude report generator) ──────────────────────────
+  demo:
+    build:
+      context: .
+      dockerfile: demo/Dockerfile
+    container_name: fraud-demo
+    ports:
+      - "8081:8081"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GNN_API_URL=http://gnn-api:8001
+      - DATA_API_URL=http://data-api:8000
+    depends_on:
+      gnn-api:
+        condition: service_healthy

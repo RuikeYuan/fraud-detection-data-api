@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fraud Intelligence Dashboard</title>
+<style>
+:root {
+  --bg:        #F7F6F3;
+  --surface:   #FFFFFF;
+  --border:    #E8E6E1;
+  --text-1:    #1A1A18;
+  --text-2:    #6B6B67;
+  --text-3:    #A8A8A4;
+  --risk-h:    #C0392B; --risk-h-bg: #FDF0EF;
+  --risk-m:    #D4860A; --risk-m-bg: #FEF8EE;
+  --risk-l:    #2D7A45; --risk-l-bg: #EFF7F2;
+  --font: 'Inter','Helvetica Neue',Arial,sans-serif;
+  --mono: 'JetBrains Mono','Fira Code',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--bg);color:var(--text-1);font-size:14px;line-height:1.6}
+.shell{max-width:1200px;margin:0 auto;padding:44px 32px 80px}
+
+/* Header */
+header{border-bottom:1px solid var(--border);padding-bottom:24px;margin-bottom:40px;display:flex;justify-content:space-between;align-items:flex-end;gap:24px}
+.wordmark{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-3);font-weight:500;margin-bottom:4px}
+h1{font-size:24px;font-weight:600;letter-spacing:-.02em}
+.header-meta{font-size:11px;color:var(--text-3);margin-top:3px;font-family:var(--mono)}
+.model-tag{background:var(--text-1);color:#fff;font-size:11px;letter-spacing:.06em;padding:6px 12px;border-radius:4px;white-space:nowrap;font-weight:500;flex-shrink:0}
+
+/* KPI strip */
+.kpi-strip{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:44px}
+.kpi{background:var(--surface);padding:20px 18px}
+.kpi-label{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--text-3);font-weight:500;margin-bottom:8px}
+.kpi-value{font-size:26px;font-weight:700;letter-spacing:-.03em;line-height:1}
+.kpi-sub{font-size:11px;color:var(--text-3);margin-top:4px}
+.kpi-value.red{color:var(--risk-h)} .kpi-value.amber{color:var(--risk-m)} .kpi-value.green{color:var(--risk-l)}
+
+/* Section label */
+.sec-label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);font-weight:600;margin-bottom:14px}
+
+/* ─── Investigation Cards ─────────────────────────────────────── */
+.card-list{display:flex;flex-direction:column;gap:2px;margin-bottom:48px}
+.tx-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;transition:box-shadow .15s}
+.tx-card:hover{box-shadow:0 4px 18px rgba(0,0,0,.06)}
+
+.card-head{display:flex;align-items:center;gap:14px;padding:16px 20px;cursor:pointer;user-select:none}
+.rdot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.rdot.HIGH{background:var(--risk-h);box-shadow:0 0 0 3px var(--risk-h-bg)}
+.rdot.MEDIUM{background:var(--risk-m);box-shadow:0 0 0 3px var(--risk-m-bg)}
+.rdot.LOW{background:var(--risk-l);box-shadow:0 0 0 3px var(--risk-l-bg)}
+
+.tx-id{font-family:var(--mono);font-size:11px;color:var(--text-3);width:108px;flex-shrink:0}
+.type-pill{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;padding:3px 8px;border-radius:4px;background:var(--bg);color:var(--text-2);flex-shrink:0}
+.accounts{flex:1;display:flex;align-items:center;gap:7px;font-size:11px;font-family:var(--mono);color:var(--text-2);min-width:0;overflow:hidden}
+.accounts span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.arr{color:var(--text-3);flex-shrink:0}
+.amount{font-size:15px;font-weight:600;letter-spacing:-.02em;flex-shrink:0;margin-left:auto}
+.rbadge{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;padding:3px 9px;border-radius:4px;flex-shrink:0}
+.rbadge.HIGH{background:var(--risk-h-bg);color:var(--risk-h)}
+.rbadge.MEDIUM{background:var(--risk-m-bg);color:var(--risk-m)}
+.rbadge.LOW{background:var(--risk-l-bg);color:var(--risk-l)}
+.chev{color:var(--text-3);font-size:11px;flex-shrink:0;transition:transform .2s}
+.chev.open{transform:rotate(180deg)}
+
+.card-body{display:none;border-top:1px solid var(--border);padding:22px 20px 20px}
+.card-body.open{display:block}
+.body-grid{display:grid;grid-template-columns:220px 1fr 1fr;gap:20px}
+
+.panel-title{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);font-weight:600;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+
+/* Prob bars */
+.prob-row{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.prob-label{font-size:11px;color:var(--text-2);width:58px;flex-shrink:0}
+.bar-track{flex:1;height:4px;background:var(--bg);border-radius:2px;overflow:hidden}
+.bar-fill{height:100%;border-radius:2px;transition:width .6s ease}
+.prob-pct{font-family:var(--mono);font-size:11px;font-weight:600;width:36px;text-align:right}
+.kv{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px;margin-top:10px}
+.kv-k{color:var(--text-3)} .kv-v{font-weight:500;text-align:right}
+
+/* Actions */
+.action-row{display:flex;gap:9px;margin-bottom:7px;align-items:flex-start;font-size:12px;line-height:1.5}
+.pri-tag{font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:3px;white-space:nowrap;flex-shrink:0;margin-top:1px}
+.pri-tag.p1{background:var(--risk-h-bg);color:var(--risk-h)}
+.pri-tag.p2{background:var(--risk-m-bg);color:var(--risk-m)}
+.pri-tag.p3{background:var(--risk-l-bg);color:var(--risk-l)}
+.pri-tag.p4{background:#F0F0EE;color:var(--text-2)}
+
+/* Summary */
+.summary-text{font-size:12px;line-height:1.8;color:var(--text-2)}
+.summary-text p{margin-bottom:8px}
+.summary-text p:last-child{margin-bottom:0}
+
+/* ─── Live Feed ───────────────────────────────────────────────── */
+.live-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.live-status{display:flex;align-items:center;gap:8px}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--risk-l);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.live-label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+.countdown-wrap{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-3)}
+.countdown-bar-track{width:120px;height:3px;background:var(--border);border-radius:2px;overflow:hidden}
+.countdown-bar{height:100%;background:var(--text-3);border-radius:2px;transition:width 1s linear}
+#countdownNum{font-family:var(--mono);font-weight:600;color:var(--text-2);width:24px;text-align:right}
+
+.live-table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+table{width:100%;border-collapse:collapse}
+thead tr{background:var(--bg)}
+th{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:600;padding:10px 14px;text-align:left;border-bottom:1px solid var(--border)}
+td{font-size:12px;padding:9px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr.row-new td{animation:fadeIn .4s ease}
+@keyframes fadeIn{from{background:#FFFBF0}to{background:transparent}}
+.mono{font-family:var(--mono);font-size:11px}
+.amount-cell{font-weight:600;letter-spacing:-.01em}
+.no-data{text-align:center;padding:32px;color:var(--text-3);font-size:12px}
+
+/* Batch badge */
+.batch-badge{display:inline-flex;align-items:center;gap:5px;font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 8px;color:var(--text-2);font-weight:500}
+
+footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);display:flex;justify-content:space-between}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- Header -->
+<header>
+  <div>
+    <div class="wordmark">Financial Intelligence · GraphSAGE + Claude Agent</div>
+    <h1>Fraud Detection Dashboard</h1>
+    <div class="header-meta" id="headerMeta">—</div>
+  </div>
+  <div class="model-tag">GraphSAGE 2-layer · claude-sonnet-4-6</div>
+</header>
+
+<!-- KPIs -->
+<div class="kpi-strip">
+  <div class="kpi">
+    <div class="kpi-label">Model Accounts</div>
+    <div class="kpi-value" id="kpiAccounts">80,486</div>
+    <div class="kpi-sub">GNN graph nodes</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">High Risk</div>
+    <div class="kpi-value red" id="kpiHigh">1</div>
+    <div class="kpi-sub">prob ≥ 0.70</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Deep Reviewed</div>
+    <div class="kpi-value" id="kpiDeep">3</div>
+    <div class="kpi-sub">Claude Agent</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Live Processed</div>
+    <div class="kpi-value" id="kpiTotal">0</div>
+    <div class="kpi-sub">stream total</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Live Fraud</div>
+    <div class="kpi-value red" id="kpiFraud">0</div>
+    <div class="kpi-sub">HIGH risk</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-label">Needs Review</div>
+    <div class="kpi-value amber" id="kpiMedium">0</div>
+    <div class="kpi-sub">MEDIUM risk</div>
+  </div>
+</div>
+
+<!-- Investigation Results -->
+<div class="sec-label">Claude Agent Investigation Results</div>
+<div class="card-list" id="cardList">
+  <div class="no-data">Loading investigation reports…</div>
+</div>
+
+<!-- Live Feed -->
+<div class="live-header">
+  <div class="live-status">
+    <div class="pulse"></div>
+    <div class="live-label">Live Transaction Feed</div>
+    <div class="batch-badge" id="batchBadge">Batch #0</div>
+  </div>
+  <div class="countdown-wrap">
+    <span>Next batch in</span>
+    <div class="countdown-bar-track"><div class="countdown-bar" id="cntBar" style="width:100%"></div></div>
+    <span id="countdownNum">60</span>s
+  </div>
+</div>
+<div class="live-table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Risk</th><th>Type</th><th>Sender</th><th>Receiver</th>
+        <th>Amount</th><th>Sender Prob</th><th>Receiver Prob</th><th>Rationale</th>
+      </tr>
+    </thead>
+    <tbody id="liveBody">
+      <tr><td colspan="8" class="no-data">Waiting for first batch…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<footer>
+  <span>Fraud Detection System · PaySim Dataset · GraphSAGE GNN</span>
+  <span id="footerTime">—</span>
+</footer>
+</div>
+
+<script>
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function probColor(p) {
+  return p >= 0.6 ? 'var(--risk-h)' : p >= 0.3 ? 'var(--risk-m)' : 'var(--risk-l)';
+}
+
+function riskClass(r) {
+  return r === 'HIGH' ? 'HIGH' : r === 'MEDIUM' ? 'MEDIUM' : 'LOW';
+}
+
+// Strip ALL markdown from a string and return clean readable text
+function cleanMd(s) {
+  return s
+    .replace(/#+\s*/g, '')          // headings
+    .replace(/\*\*(.*?)\*\*/g, '$1') // bold
+    .replace(/\*(.*?)\*/g, '$1')     // italic
+    .replace(/`([^`]+)`/g, '$1')     // inline code
+    .replace(/^\|.*\|$/gm, '')       // table rows
+    .replace(/^[-|:\s]+$/gm, '')     // table dividers
+    .replace(/^>\s*/gm, '')          // blockquotes
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
+    .replace(/[🔍🔎🔴🟠🟡🟢✅❌⚠️📌📤📥👤🚨]/g, '') // emoji
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/^\s+|\s+$/g, '');
+}
+
+// Extract a clean readable summary from the verdict/analysis section
+function extractSummary(raw) {
+  // First try to isolate the verdict / comprehensive judgement section
+  const sectionRe = /(?:综合判断|Verdict|Conclusion|## (?:Four|Five|四|五))([\s\S]*?)(?:\n##|\n---|\Z|$)/i;
+  const secMatch = raw.match(sectionRe);
+  const source = secMatch ? secMatch[1] : raw;
+
+  const cleaned = cleanMd(source);
+
+  // Split into individual sentences (split on。.  ；; and newlines)
+  const sentences = cleaned
+    .split(/[。\n；;]/)
+    .map(s => s.replace(/^[-•\s]+/, '').trim())
+    .filter(s => s.length > 15);
+
+  // Prefer sentences with analytical signal
+  const signal = sentences.filter(s =>
+    /GNN|fraud|risk|prob|model|amount|graph|pattern|confidence|action|欺诈|风险|概率|模型|金额|建议|判断|图|置信|结论/i.test(s)
+  );
+
+  const result = signal.length >= 2 ? signal : sentences;
+  return result.slice(0, 5);
+}
+
+// Parse recommended actions — only from the actions section, not transaction info tables
+function parseActions(raw) {
+  // Find the actions section boundary (after "建议处理措施" or "Recommended Actions")
+  const sectionMatch = raw.match(
+    /(?:建议处理措施|Recommended Actions|## Five|## 五)([\s\S]*?)(?:\n##|\n---\n|$)/i
+  );
+  const section = sectionMatch ? sectionMatch[1] : raw;
+
+  const lines = section.split('\n');
+  const actions = [];
+
+  for (const line of lines) {
+    if (!/^\|/.test(line)) continue;
+    const cells = line.split('|').map(s => s.trim()).filter(Boolean);
+    if (cells.length < 2) continue;
+
+    const priCell  = cells[0];
+    const textCell = cells[cells.length - 1]; // last non-empty cell is the action text
+
+    // Skip divider rows and header rows
+    if (/^[-:\s|]+$/.test(line)) continue;
+    if (/^(?:Priority|Action|优先级|措施|Field|字段|Metric|指标)$/i.test(priCell)) continue;
+    // Skip transaction info rows (these have account IDs or amounts as values)
+    if (/^C\d{6,}$/.test(textCell) || /^[\d,]+\.\d{2}$/.test(textCell)) continue;
+    if (/^(?:TX_|TRANSFER|CASH|PAYMENT|Step \d)/i.test(textCell)) continue;
+    if (textCell.length < 8) continue;
+
+    let pri = 'p4';
+    if (/IMMEDIATE|立即|🔴/.test(priCell))         pri = 'p1';
+    else if (/24H|HIGH|高优先|🟠/.test(priCell))   pri = 'p2';
+    else if (/FOLLOW|后续|建议|🟡/.test(priCell))  pri = 'p3';
+
+    const label = priCell.replace(/[🔴🟠🟡⚪*]/g,'').trim() || 'NOTE';
+    const text  = textCell.replace(/\*\*/g,'').replace(/[🔴🟠🟡⚪✅❌⚠️]/g,'').trim();
+    if (text.length > 8) actions.push({ pri, label, text });
+  }
+  return actions.slice(0, 6);
+}
+
+// Extract basic transaction fields from report
+function parseTxFields(raw) {
+  const get = (patterns) => {
+    for (const p of patterns) {
+      const m = raw.match(p);
+      if (m) return m[1].trim();
+    }
+    return '—';
+  };
+  return {
+    type:   get([/Transaction ID[^|]*\|[^|]*\|\s*Type[^|]*\|\s*([A-Z_]+)/,
+                 /交易类型[^|]*\|\s*(\w[^|\n]+)/,
+                 /Type[^|]*\|\s*([A-Z_]+)/]),
+    src:    get([/Sender[^|]*\|\s*(C\d+)/,   /发款[方人账][^|]*\|\s*(C\d+)/]),
+    dst:    get([/Receiver[^|]*\|\s*(C\d+)/, /收款[方人账][^|]*\|\s*(C\d+)/]),
+    amount: get([/Amount[^|]*\|\s*[¥$\s*]*([\d,，.]+)/, /交易金额[^|]*\|\s*[\*¥$\s]*([\d,，.]+)/]),
+  };
+}
+
+function parseRisk(raw) {
+  // Look for the risk level badge specifically adjacent to risk-level labels
+  // Matches: "风险等级 | 🔴 **HIGH" or "风险等级 | HIGH" or "Risk Level | HIGH"
+  // Must NOT match "高风险阈值" (high-risk threshold) which is context text
+  const riskLineRe = /(?:风险等级|Risk Level|Overall risk level|综合风险等级)[^\n]{0,60}?\b(HIGH|MEDIUM|LOW)\b/i;
+  const m = raw.match(riskLineRe);
+  if (m) return m[1].toUpperCase();
+
+  // Also check the verdict/conclusion section for clearer signal
+  const verdictRe = /(?:结论|Verdict|Conclusion)[^\n]{0,80}?\b(HIGH|MEDIUM|LOW)\b/i;
+  const v = raw.match(verdictRe);
+  if (v) return v[1].toUpperCase();
+
+  // Emoji dot as last resort — 🟢=LOW 🟡=MEDIUM 🔴=HIGH, only near risk keywords
+  if (/🔴\s*\*{0,2}(?:HIGH|高风险)/.test(raw)) return 'HIGH';
+  if (/🟡\s*\*{0,2}(?:MEDIUM|中风险)/.test(raw)) return 'MEDIUM';
+  if (/🟢\s*\*{0,2}(?:LOW|低风险)/.test(raw))  return 'LOW';
+
+  return 'LOW';
+}
+
+function parseProbs(raw) {
+  // Scan line-by-line; find the line mentioning sender/receiver prob,
+  // then extract ALL numbers+% from that line and take the LAST one
+  // (avoids partial matches like "8" from "58%")
+  function findProb(labelRe) {
+    for (const line of raw.split('\n')) {
+      if (!labelRe.test(line)) continue;
+      const all = [...line.matchAll(/([\d]+\.?[\d]*)%/g)];
+      if (all.length > 0) return parseFloat(all[all.length - 1][1]);
+    }
+    return 5.0;
+  }
+  return {
+    src: findProb(/sender|发款[方人]/i),
+    dst: findProb(/receiver|收款[方人]/i),
+  };
+}
+
+// ── Render investigation cards ───────────────────────────────────────────────
+
+function renderCards(reports) {
+  const list = document.getElementById('cardList');
+  list.innerHTML = '';
+
+  reports.forEach((item, idx) => {
+    const raw     = item.report || '';
+    const risk    = parseRisk(raw);
+    const probs   = parseProbs(raw);
+    const actions = parseActions(raw);
+    const summary = extractSummary(raw);
+    const fields  = parseTxFields(raw);
+
+    const typeLabel = fields.type.includes('TRANSFER') ? 'TRANSFER'
+                    : fields.type.includes('CASH') ? 'CASH OUT'
+                    : fields.type.slice(0,12) || item.tx_id;
+
+    const card = document.createElement('div');
+    card.className = 'tx-card';
+    card.innerHTML = `
+      <div class="card-head" onclick="toggle(${idx})">
+        <div class="rdot ${risk}"></div>
+        <div class="tx-id">${item.tx_id}</div>
+        <div class="type-pill">${typeLabel}</div>
+        <div class="accounts">
+          <span>${fields.src}</span>
+          <span class="arr">→</span>
+          <span>${fields.dst}</span>
+        </div>
+        <div class="amount">¥ ${fields.amount}</div>
+        <div class="rbadge ${risk}">${risk}</div>
+        <div class="chev" id="ch${idx}">▾</div>
+      </div>
+      <div class="card-body" id="bd${idx}">
+        <div class="body-grid">
+
+          <div>
+            <div class="panel-title">GNN Fraud Probability</div>
+            ${['Sender','Receiver'].map((lbl,i)=>{
+              const p = i===0 ? probs.src : probs.dst;
+              return `<div class="prob-row">
+                <span class="prob-label">${lbl}</span>
+                <div class="bar-track"><div class="bar-fill" style="width:${Math.min(p,100)}%;background:${probColor(p/100)}"></div></div>
+                <span class="prob-pct" style="color:${probColor(p/100)}">${p.toFixed(1)}%</span>
+              </div>`;
+            }).join('')}
+            <div class="kv"><span class="kv-k">Risk Level</span><span class="kv-v"><span class="rbadge ${risk}">${risk}</span></span></div>
+            <div class="kv"><span class="kv-k">Model</span><span class="kv-v" style="font-size:11px;color:var(--text-2)">GraphSAGE 2-layer</span></div>
+          </div>
+
+          <div>
+            <div class="panel-title">Recommended Actions</div>
+            ${actions.length
+              ? actions.map(a=>`<div class="action-row"><span class="pri-tag ${a.pri}">${a.label}</span><span>${a.text}</span></div>`).join('')
+              : '<div style="font-size:12px;color:var(--text-3)">Re-run demo.py to generate English actions.</div>'
+            }
+          </div>
+
+          <div>
+            <div class="panel-title">Claude Agent Summary</div>
+            <div class="summary-text">
+              ${summary.length
+                ? summary.map(s=>`<p>${s}</p>`).join('')
+                : '<p style="color:var(--text-3)">No summary extracted — re-run demo.py with updated English prompt.</p>'
+              }
+            </div>
+          </div>
+
+        </div>
+      </div>`;
+    list.appendChild(card);
+  });
+}
+
+function toggle(idx) {
+  document.getElementById(`bd${idx}`).classList.toggle('open');
+  document.getElementById(`ch${idx}`).classList.toggle('open');
+}
+
+// ── Live feed ────────────────────────────────────────────────────────────────
+
+// 本地开发（http.server :8080）→ 直接调 localhost:8091；Azure nginx → 相对路径 /batch
+const BATCH_API = location.hostname === 'localhost' ? 'http://localhost:8091/batch' : '/batch';
+const INTERVAL  = 60; // seconds
+let countdown   = INTERVAL;
+let timerHandle = null;
+
+function riskRowHTML(tx, isNew) {
+  const rc = riskClass(tx.risk);
+  return `<tr class="${isNew?'row-new':''}">
+    <td><span class="rbadge ${rc}">${tx.risk}</span></td>
+    <td><span class="type-pill">${tx.type||'—'}</span></td>
+    <td class="mono">${(tx.src||'').slice(0,12)}</td>
+    <td class="mono">${(tx.dst||'').slice(0,12)}</td>
+    <td class="amount-cell">¥ ${Number(tx.amount).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+    <td class="mono" style="color:${probColor(tx.src_prob)}">${(tx.src_prob*100).toFixed(1)}%</td>
+    <td class="mono" style="color:${probColor(tx.dst_prob)}">${(tx.dst_prob*100).toFixed(1)}%</td>
+    <td style="font-size:11px;color:var(--text-2);max-width:220px">${tx.reason||'—'}</td>
+  </tr>`;
+}
+
+async function fetchBatch(isNew) {
+  try {
+    const res  = await fetch(BATCH_API);
+    const data = await res.json();
+
+    // Update KPIs
+    document.getElementById('kpiTotal').textContent  = (data.total_processed||0).toLocaleString();
+    document.getElementById('kpiFraud').textContent  = (data.total_fraud||0).toLocaleString();
+    document.getElementById('kpiMedium').textContent = (data.total_medium||0).toLocaleString();
+    document.getElementById('batchBadge').textContent = `Batch #${data.batch_number||0}`;
+
+    const tbody = document.getElementById('liveBody');
+    const txs   = data.transactions || [];
+
+    if (txs.length === 0) {
+      if (data.message) {
+        tbody.innerHTML = `<tr><td colspan="8" class="no-data">${data.message}</td></tr>`;
+      }
+      return;
+    }
+
+    // Sort HIGH first
+    txs.sort((a,b) => {
+      const ord = {HIGH:0,MEDIUM:1,LOW:2};
+      return (ord[a.risk]||2)-(ord[b.risk]||2);
+    });
+
+    tbody.innerHTML = txs.map((tx,i) => riskRowHTML(tx, isNew && i<5)).join('');
+  } catch(e) {
+    document.getElementById('liveBody').innerHTML =
+      `<tr><td colspan="8" class="no-data">batch_server.py not running — start it on port 8090</td></tr>`;
+  }
+}
+
+function startCountdown() {
+  if (timerHandle) clearInterval(timerHandle);
+  countdown = INTERVAL;
+
+  timerHandle = setInterval(async () => {
+    countdown--;
+    document.getElementById('countdownNum').textContent = countdown;
+    document.getElementById('cntBar').style.width = (countdown / INTERVAL * 100) + '%';
+
+    if (countdown <= 0) {
+      countdown = INTERVAL;
+      await fetchBatch(true);
+    }
+  }, 1000);
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+
+async function boot() {
+  const now = new Date();
+  document.getElementById('headerMeta').textContent =
+    `Loaded ${now.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})} · ${now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`;
+  document.getElementById('footerTime').textContent =
+    `Dashboard loaded at ${now.toISOString().slice(0,19).replace('T',' ')}`;
+
+  // Load Claude investigation reports
+  try {
+    const res     = await fetch('investigation_reports.json');
+    const reports = await res.json();
+    renderCards(reports);
+    document.getElementById('kpiDeep').textContent = reports.length;
+  } catch(e) {
+    document.getElementById('cardList').innerHTML =
+      `<div class="no-data">Cannot load investigation_reports.json — run demo.py first, then serve from this folder.</div>`;
+  }
+
+  // First batch immediately, then every 60s
+  await fetchBatch(false);
+  startCountdown();
+}
+
+boot();
+</script>
+</body>
+</html>

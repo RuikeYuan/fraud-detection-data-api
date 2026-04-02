@@ -1,0 +1,246 @@
+# k8s-deployment.yaml — 完整的 Kubernetes 部署清单
+# 包含 4 个服务：redis / data-api / gnn-api / demo
+# 占位符由 deploy.ps1 在运行时替换：
+#   __ACR__       → ACR 登录服务器地址（e.g. frauddetacr.azurecr.io）
+#   __TAG__       → 镜像 Tag（默认 latest）
+#   deploy.ps1 同时会先创建 anthropic-secret，供 gnn-api 和 demo 使用
+
+# ─── Namespace ───────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fraud-detection
+
+---
+# ─── Secret：ANTHROPIC_API_KEY ───────────────────────────────────────────────
+# 由 deploy.ps1 在 kubectl apply 之前单独创建，此处仅作结构占位
+# 创建命令（deploy.ps1 内自动执行）：
+#   kubectl create secret generic anthropic-secret \
+#     --from-literal=api-key=$env:ANTHROPIC_API_KEY \
+#     -n fraud-detection --dry-run=client -o yaml | kubectl apply -f -
+
+# ─── Redis ───────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: fraud-detection
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: fraud-detection
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+
+---
+# ─── Data Pipeline API (:8000) ───────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-api
+  namespace: fraud-detection
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-api
+  template:
+    metadata:
+      labels:
+        app: data-api
+    spec:
+      containers:
+        - name: data-api
+          image: __ACR__/fraud-data-api:__TAG__
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          env:
+            # 代码中读取的是 REDIS_URL，格式：redis://<host>:<port>
+            - name: REDIS_URL
+              value: "redis://redis-service:6379"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+          readinessProbe:
+            httpGet:
+              path: /stream/status
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /stream/status
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-api-service
+  namespace: fraud-detection
+spec:
+  selector:
+    app: data-api
+  ports:
+    - port: 8000
+      targetPort: 8000
+
+---
+# ─── GNN Inference API (:8001) ───────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gnn-api
+  namespace: fraud-detection
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gnn-api
+  template:
+    metadata:
+      labels:
+        app: gnn-api
+    spec:
+      containers:
+        - name: gnn-api
+          image: __ACR__/fraud-gnn-api:__TAG__
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8001
+          env:
+            - name: CHECKPOINT_DIR
+              value: "/app/checkpoints"
+            - name: REBUILD_INTERVAL
+              value: "200"
+            - name: DATA_API_URL
+              value: "http://data-api-service:8000"
+          resources:
+            # GNN 推理需要较多内存（模型 + PyG 图结构）
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 60
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gnn-api-service
+  namespace: fraud-detection
+spec:
+  selector:
+    app: gnn-api
+  ports:
+    - port: 8001
+      targetPort: 8001
+
+---
+# ─── Demo Frontend (:8081) ───────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo
+  namespace: fraud-detection
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo
+  template:
+    metadata:
+      labels:
+        app: demo
+    spec:
+      containers:
+        - name: demo
+          image: __ACR__/fraud-demo:__TAG__
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8081
+          env:
+            - name: GNN_API_URL
+              value: "http://gnn-api-service:8001"
+            - name: DATA_API_URL
+              value: "http://data-api-service:8000"
+            - name: REDIS_URL
+              value: "redis://redis-service:6379"
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: anthropic-secret
+                  key: api-key
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-service
+  namespace: fraud-detection
+spec:
+  type: LoadBalancer   # 对外暴露公网 IP，用户通过此 IP 访问演示界面
+  selector:
+    app: demo
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8081

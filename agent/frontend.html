@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>欺诈检测 AI 助手</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0f1117;
+    color: #e0e0e0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Header ── */
+  header {
+    background: #1a1d2e;
+    border-bottom: 1px solid #2a2d3e;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .logo { font-size: 22px; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  .badge {
+    margin-left: auto;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: #1e3a2f;
+    color: #4ade80;
+    border: 1px solid #22c55e44;
+  }
+
+  /* ── Chat area ── */
+  #chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .msg {
+    display: flex;
+    gap: 12px;
+    max-width: 820px;
+  }
+  .msg.user  { align-self: flex-end; flex-direction: row-reverse; }
+  .msg.bot   { align-self: flex-start; }
+
+  .avatar {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .user .avatar { background: #3b5bdb; }
+  .bot  .avatar { background: #1a1d2e; border: 1px solid #2a2d3e; }
+
+  .bubble {
+    padding: 12px 16px;
+    border-radius: 12px;
+    line-height: 1.65;
+    font-size: 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .user .bubble {
+    background: #3b5bdb;
+    color: #fff;
+    border-radius: 12px 2px 12px 12px;
+  }
+  .bot .bubble {
+    background: #1a1d2e;
+    border: 1px solid #2a2d3e;
+    border-radius: 2px 12px 12px 12px;
+  }
+
+  /* ── Tool call cards ── */
+  .tool-card {
+    margin-top: 8px;
+    background: #0f1117;
+    border: 1px solid #2a2d3e;
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  .tool-header {
+    padding: 7px 12px;
+    background: #1e2030;
+    color: #7c8db5;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tool-header .icon { font-size: 14px; }
+  .tool-header .name { font-weight: 600; color: #a5b4fc; }
+  .tool-body {
+    padding: 10px 12px;
+    font-family: "Menlo", "Consolas", monospace;
+    color: #94a3b8;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .risk-high   { color: #f87171; }
+  .risk-medium { color: #fb923c; }
+  .risk-low    { color: #4ade80; }
+
+  /* ── Typing indicator ── */
+  .typing {
+    display: flex; align-items: center; gap: 6px;
+    color: #6b7280; font-size: 13px; padding: 4px 0;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #6b7280; }
+  .dot:nth-child(1) { animation: blink 1.2s 0.0s infinite; }
+  .dot:nth-child(2) { animation: blink 1.2s 0.2s infinite; }
+  .dot:nth-child(3) { animation: blink 1.2s 0.4s infinite; }
+  @keyframes blink { 0%,80%,100%{opacity:.2} 40%{opacity:1} }
+
+  /* ── Input area ── */
+  footer {
+    background: #1a1d2e;
+    border-top: 1px solid #2a2d3e;
+    padding: 16px 24px;
+  }
+  .input-row {
+    display: flex;
+    gap: 10px;
+    max-width: 820px;
+    margin: 0 auto;
+  }
+  #userInput {
+    flex: 1;
+    background: #0f1117;
+    border: 1px solid #2a2d3e;
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-size: 14px;
+    color: #e0e0e0;
+    outline: none;
+    resize: none;
+    min-height: 42px;
+    max-height: 120px;
+    line-height: 1.5;
+    font-family: inherit;
+  }
+  #userInput:focus { border-color: #3b5bdb; }
+
+  #sendBtn {
+    background: #3b5bdb;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 0 20px;
+    cursor: pointer;
+    font-size: 18px;
+    transition: background .2s;
+    align-self: flex-end;
+    height: 42px;
+  }
+  #sendBtn:hover  { background: #4c6ef5; }
+  #sendBtn:disabled { background: #2a2d3e; cursor: not-allowed; }
+
+  /* ── Quick prompts ── */
+  .quick-btns {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    max-width: 820px; margin: 0 auto 12px;
+  }
+  .qbtn {
+    font-size: 12px;
+    padding: 5px 12px;
+    background: #1a1d2e;
+    border: 1px solid #2a2d3e;
+    border-radius: 16px;
+    color: #94a3b8;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all .15s;
+  }
+  .qbtn:hover { border-color: #3b5bdb; color: #a5b4fc; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2a2d3e; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">🛡️</span>
+  <h1>欺诈检测 AI 助手</h1>
+  <span class="badge">GraphSAGE · Claude Opus 4.6</span>
+</header>
+
+<div id="chat"></div>
+
+<footer>
+  <div class="quick-btns">
+    <button class="qbtn" onclick="quickSend('帮我检查服务健康状态和图统计信息')">📊 系统状态</button>
+    <button class="qbtn" onclick="quickSend('对账户 C1231006815 向 C553264065 转账 50000 美元（TRANSFER）做欺诈评估')">🔍 单笔检测</button>
+    <button class="qbtn" onclick="quickSend('批量检测：\n1. C1231006815 → C553264065，金额 50000，TRANSFER\n2. C987654321 → M123456789，金额 200，PAYMENT\n3. C111222333 → C444555666，金额 999999，CASH_OUT')">📋 批量检测</button>
+    <button class="qbtn" onclick="quickSend('解释欺诈检测系统的工作原理')">❓ 工作原理</button>
+  </div>
+  <div class="input-row">
+    <textarea id="userInput" placeholder="输入问题或交易信息..." rows="1"
+      onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+    <button id="sendBtn" onclick="sendMessage()">➤</button>
+  </div>
+</footer>
+
+<script>
+// ── 对话历史 ──────────────────────────────────────────────────────────
+const history = [];
+let isStreaming = false;
+
+// ── DOM 工具 ──────────────────────────────────────────────────────────
+const chat     = document.getElementById("chat");
+const input    = document.getElementById("userInput");
+const sendBtn  = document.getElementById("sendBtn");
+
+function scrollBottom() {
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function autoResize(el) {
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 120) + "px";
+}
+
+function handleKey(e) {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+function quickSend(text) {
+  input.value = text;
+  autoResize(input);
+  sendMessage();
+}
+
+// ── 渲染消息泡 ────────────────────────────────────────────────────────
+function addUserBubble(text) {
+  const div = document.createElement("div");
+  div.className = "msg user";
+  div.innerHTML = `
+    <div class="avatar">👤</div>
+    <div class="bubble">${escHtml(text)}</div>`;
+  chat.appendChild(div);
+  scrollBottom();
+}
+
+function createBotBubble() {
+  const div = document.createElement("div");
+  div.className = "msg bot";
+  div.innerHTML = `
+    <div class="avatar">🤖</div>
+    <div class="bubble-wrap">
+      <div class="bubble" id="botText"></div>
+    </div>`;
+  chat.appendChild(div);
+  scrollBottom();
+  return div.querySelector("#botText");
+}
+
+function addTyping() {
+  const div = document.createElement("div");
+  div.className = "msg bot";
+  div.id = "typing";
+  div.innerHTML = `
+    <div class="avatar">🤖</div>
+    <div class="typing">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      <span>思考中...</span>
+    </div>`;
+  chat.appendChild(div);
+  scrollBottom();
+  return div;
+}
+
+function addToolCard(bubbleWrap, name, input) {
+  const icons = {
+    predict_transaction: "🔍",
+    predict_batch: "📋",
+    get_graph_stats: "📊",
+    get_heterodata: "🔗",
+    get_health: "💚",
+    get_stream_status: "📡",
+  };
+  const card = document.createElement("div");
+  card.className = "tool-card";
+  card.id = `tool-${name}-${Date.now()}`;
+  card.innerHTML = `
+    <div class="tool-header">
+      <span class="icon">${icons[name] || "🔧"}</span>
+      <span class="name">${name}</span>
+      <span style="color:#6b7280;font-size:11px;">调用中...</span>
+    </div>
+    <div class="tool-body">${escHtml(JSON.stringify(input, null, 2))}</div>`;
+  bubbleWrap.appendChild(card);
+  scrollBottom();
+  return card;
+}
+
+function updateToolCard(card, resultStr) {
+  const header = card.querySelector(".tool-header span:last-child");
+  header.textContent = "✓ 完成";
+  header.style.color = "#4ade80";
+
+  try {
+    const result = JSON.parse(resultStr);
+    const body = card.querySelector(".tool-body");
+    body.textContent = JSON.stringify(result, null, 2);
+
+    // 给高风险结果上色
+    if (result.risk_level === "HIGH" || result.fraud_rate > 0.3) {
+      body.classList.add("risk-high");
+    } else if (result.risk_level === "MEDIUM") {
+      body.classList.add("risk-medium");
+    }
+  } catch (_) {}
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// ── 发送消息 ──────────────────────────────────────────────────────────
+async function sendMessage() {
+  const text = input.value.trim();
+  if (!text || isStreaming) return;
+
+  isStreaming = true;
+  sendBtn.disabled = true;
+  input.value = "";
+  input.style.height = "auto";
+
+  addUserBubble(text);
+  const typing = addTyping();
+
+  try {
+    const res = await fetch("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, history }),
+    });
+
+    typing.remove();
+
+    const botBubbleEl  = createBotBubble();
+    const bubbleWrap   = botBubbleEl.parentElement;
+    let   botText      = "";
+    let   currentCard  = null;
+    let   toolMap      = {};  // name → card element
+
+    const reader = res.body.getReader();
+    const dec    = new TextDecoder();
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      const lines = dec.decode(value).split("\n");
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const payload = JSON.parse(line.slice(6));
+
+        if (payload.type === "text") {
+          botText += payload.content;
+          botBubbleEl.textContent = botText;
+          scrollBottom();
+
+        } else if (payload.type === "tool") {
+          currentCard = addToolCard(bubbleWrap, payload.name, payload.input);
+          toolMap[payload.name] = currentCard;
+
+        } else if (payload.type === "result") {
+          const card = toolMap[payload.name];
+          if (card) updateToolCard(card, payload.output);
+
+        } else if (payload.type === "done") {
+          break;
+        }
+      }
+    }
+
+    // 记录对话历史（只保留文本，工具调用由 agent 后端维护）
+    history.push({ role: "user",      content: text    });
+    history.push({ role: "assistant", content: botText });
+
+    // 防止历史过长（保留最近 20 轮）
+    while (history.length > 40) history.splice(0, 2);
+
+  } catch (err) {
+    typing.remove();
+    const errDiv = document.createElement("div");
+    errDiv.className = "msg bot";
+    errDiv.innerHTML = `
+      <div class="avatar">🤖</div>
+      <div class="bubble" style="color:#f87171;">
+        请求失败：${escHtml(err.message)}<br>
+        请确认 Agent 服务已启动（uvicorn agent.agent_api:app --port 8080）
+      </div>`;
+    chat.appendChild(errDiv);
+    scrollBottom();
+  }
+
+  isStreaming = false;
+  sendBtn.disabled = false;
+  input.focus();
+}
+
+// ── 欢迎消息 ──────────────────────────────────────────────────────────
+window.onload = () => {
+  const welcome = document.createElement("div");
+  welcome.className = "msg bot";
+  welcome.innerHTML = `
+    <div class="avatar">🤖</div>
+    <div class="bubble">
+👋 你好！我是欺诈检测 AI 助手，接入了实时 GraphSAGE 模型。
+
+我可以帮你：
+• 🔍 <b>单笔交易评估</b> — 输入账户和金额，立即给出欺诈风险
+• 📋 <b>批量交易检测</b> — 同时分析多笔可疑交易
+• 📊 <b>系统状态查询</b> — 图统计、模型信息、流式处理状态
+
+点击上方快捷按钮，或直接描述你的需求。
+    </div>`;
+  chat.appendChild(welcome);
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Agent Fraud Detection</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0a0c14; color: #e2e8f0;
+    height: 100vh; overflow: hidden; user-select: none;
+  }
+  #deck { width: 100vw; height: 100vh; position: relative; }
+
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    justify-content: center; align-items: center;
+    padding: 52px 80px;
+    opacity: 0; pointer-events: none;
+    transition: opacity .4s ease;
+  }
+  .slide.active { opacity: 1; pointer-events: all; }
+
+  .slide-1 { background: radial-gradient(ellipse at 20% 50%, #1a1060 0%, #0a0c14 60%); }
+  .slide-2 { background: radial-gradient(ellipse at 80% 30%, #1a0a0a 0%, #0a0c14 60%); }
+  .slide-3 { background: radial-gradient(ellipse at 30% 70%, #001a2e 0%, #0a0c14 60%); }
+  .slide-4 { background: radial-gradient(ellipse at 70% 50%, #001a0a 0%, #0a0c14 60%); }
+  .slide-5 { background: radial-gradient(ellipse at 50% 20%, #1a0a1a 0%, #0a0c14 60%); }
+  .slide-6 { background: radial-gradient(ellipse at 20% 80%, #1a1060 0%, #0a0c14 60%); }
+  .slide-7 { background: radial-gradient(ellipse at 70% 70%, #1a0a0a 0%, #0a0c14 60%); }
+  .slide-8 { background: radial-gradient(ellipse at 50% 50%, #001020 0%, #0a0c14 60%); }
+
+  .slide::before {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(99,102,241,.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(99,102,241,.04) 1px, transparent 1px);
+    background-size: 48px 48px; pointer-events: none;
+  }
+
+  /* Typography */
+  .label { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: #6366f1; margin-bottom: 16px; }
+  h1 { font-size: clamp(32px, 4.5vw, 58px); font-weight: 800; line-height: 1.1; letter-spacing: -2px; text-align: center; margin-bottom: 20px; }
+  h2 { font-size: clamp(24px, 3vw, 42px); font-weight: 700; line-height: 1.15; letter-spacing: -1px; margin-bottom: 16px; text-align: center; }
+  .accent { color: #818cf8; } .red { color: #f87171; } .green { color: #4ade80; } .orange { color: #fb923c; } .yellow { color: #fbbf24; }
+  .sub { font-size: clamp(13px, 1.6vw, 18px); color: #64748b; text-align: center; line-height: 1.7; max-width: 700px; }
+
+  /* Agent architecture */
+  .arch {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 16px;
+    align-items: center;
+    margin-top: 24px;
+    width: 100%;
+    max-width: 860px;
+  }
+  .agent-col { display: flex; flex-direction: column; gap: 10px; }
+  .agent-box {
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 12px;
+    padding: 14px 18px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .agent-box.highlight { border-color: #6366f1; background: rgba(99,102,241,.1); }
+  .agent-box .a-icon { font-size: 22px; flex-shrink: 0; }
+  .agent-box .a-name { font-size: 13px; font-weight: 700; color: #e2e8f0; }
+  .agent-box .a-sub  { font-size: 11px; color: #64748b; margin-top: 2px; }
+  .center-col { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .brain-box {
+    background: linear-gradient(135deg, rgba(99,102,241,.2), rgba(124,58,237,.2));
+    border: 1px solid #6366f1;
+    border-radius: 16px;
+    padding: 20px 24px;
+    text-align: center;
+    min-width: 160px;
+  }
+  .brain-box .b-icon { font-size: 32px; margin-bottom: 8px; }
+  .brain-box .b-name { font-size: 14px; font-weight: 700; color: #a5b4fc; }
+  .brain-box .b-sub  { font-size: 11px; color: #6366f1; margin-top: 4px; }
+  .conn-line { font-size: 18px; color: #334155; }
+
+  /* MCP tools */
+  .tools-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 24px;
+    max-width: 820px;
+    width: 100%;
+  }
+  .tool-card {
+    background: rgba(255,255,255,.03);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .tool-card .t-name { font-size: 12px; font-weight: 700; color: #a5b4fc; font-family: monospace; margin-bottom: 6px; }
+  .tool-card .t-desc { font-size: 11px; color: #64748b; line-height: 1.5; }
+
+  /* ReAct loop */
+  .react-loop {
+    display: flex; gap: 0; align-items: center;
+    margin-top: 28px; flex-wrap: wrap; justify-content: center;
+  }
+  .react-step {
+    background: rgba(99,102,241,.1);
+    border: 1px solid rgba(99,102,241,.3);
+    border-radius: 12px; padding: 14px 20px; text-align: center; min-width: 120px;
+  }
+  .react-step .rs-icon { font-size: 24px; margin-bottom: 8px; }
+  .react-step .rs-title { font-size: 12px; font-weight: 700; color: #a5b4fc; }
+  .react-step .rs-sub   { font-size: 10px; color: #64748b; margin-top: 3px; }
+  .react-arrow { font-size: 18px; color: #334155; padding: 0 6px; }
+  .react-loop-back {
+    margin-top: 10px; font-size: 11px; color: #475569; text-align: center;
+    border: 1px dashed #334155; border-radius: 8px; padding: 6px 16px;
+  }
+
+  /* Dispatcher */
+  .dispatch-rows { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; max-width: 700px; width: 100%; }
+  .dispatch-row {
+    display: flex; align-items: center; gap: 16px;
+    background: rgba(255,255,255,.03); border-radius: 12px; padding: 16px 20px;
+    border-left: 4px solid;
+  }
+  .dispatch-row.high   { border-color: #f87171; }
+  .dispatch-row.medium { border-color: #fb923c; }
+  .dispatch-row.low    { border-color: #4ade80; }
+  .dispatch-row .prob  { font-size: 18px; font-weight: 800; min-width: 60px; }
+  .dispatch-row.high   .prob { color: #f87171; }
+  .dispatch-row.medium .prob { color: #fb923c; }
+  .dispatch-row.low    .prob { color: #4ade80; }
+  .dispatch-row .action { font-size: 13px; font-weight: 700; color: #e2e8f0; }
+  .dispatch-row .desc   { font-size: 12px; color: #64748b; margin-top: 3px; }
+
+  /* Demo scenario */
+  .scenario {
+    display: flex; flex-direction: column; gap: 10px;
+    margin-top: 20px; max-width: 700px; width: 100%;
+  }
+  .scene-step {
+    display: flex; gap: 14px; align-items: flex-start;
+    background: rgba(255,255,255,.03); border-radius: 10px; padding: 12px 16px;
+  }
+  .scene-num {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: #6366f1; color: #fff;
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .scene-text { font-size: 13px; color: #94a3b8; line-height: 1.5; }
+  .scene-text b { color: #e2e8f0; }
+
+  /* Big numbers */
+  .bignums { display: flex; gap: 48px; margin-top: 28px; flex-wrap: wrap; justify-content: center; }
+  .bignum { text-align: center; }
+  .bignum .n { font-size: clamp(36px, 5vw, 64px); font-weight: 800; letter-spacing: -2px; line-height: 1; }
+  .bignum .d { font-size: 11px; color: #64748b; margin-top: 6px; letter-spacing: 1px; }
+
+  /* Nav */
+  #nav {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 12px;
+    background: rgba(10,12,20,.85); border: 1px solid rgba(255,255,255,.08);
+    border-radius: 40px; padding: 10px 20px; backdrop-filter: blur(12px); z-index: 99;
+  }
+  .nav-dot { width: 8px; height: 8px; border-radius: 50%; background: #1e293b; border: 1px solid #334155; cursor: pointer; transition: all .2s; }
+  .nav-dot.active { background: #6366f1; border-color: #6366f1; width: 24px; border-radius: 4px; }
+  .nav-btn { background: none; border: 1px solid #1e293b; color: #64748b; border-radius: 8px; width: 30px; height: 30px; cursor: pointer; font-size: 14px; transition: all .2s; display: flex; align-items: center; justify-content: center; }
+  .nav-btn:hover { border-color: #6366f1; color: #a5b4fc; }
+  #slide-counter { font-size: 11px; color: #334155; min-width: 36px; text-align: center; }
+
+  .title-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(99,102,241,.12); border: 1px solid rgba(99,102,241,.3); border-radius: 20px; padding: 6px 16px; font-size: 12px; color: #a5b4fc; letter-spacing: 1px; margin-bottom: 28px; }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 6px #4ade80; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(1.5)} }
+  .tagline { font-size: clamp(12px, 1.3vw, 15px); color: #334155; margin-top: 28px; letter-spacing: 2px; text-transform: uppercase; }
+
+  .bullets { list-style: none; margin-top: 20px; display: flex; flex-direction: column; gap: 12px; max-width: 640px; width: 100%; }
+  .bullets li { display: flex; align-items: flex-start; gap: 12px; font-size: clamp(13px, 1.5vw, 17px); color: #94a3b8; line-height: 1.5; }
+  .bullets li .dot { width: 7px; height: 7px; border-radius: 50%; background: #6366f1; margin-top: 7px; flex-shrink: 0; }
+  .bullets li b { color: #e2e8f0; }
+</style>
+</head>
+<body>
+<div id="deck">
+
+  <!-- 1. Title -->
+  <div class="slide slide-1 active">
+    <div class="title-badge"><span class="live-dot"></span> HACKATHON DEMO · REAL-TIME</div>
+    <h1>Multi-Agent<br><span class="accent">Fraud Detection</span></h1>
+    <p class="sub">A hierarchical AI system where Claude acts as the brain —<br>orchestrating specialized agents to catch fraud in real time</p>
+    <p class="tagline">Claude 3.5 Sonnet · GraphSAGE · Redis Stream · MCP Tools</p>
+  </div>
+
+  <!-- 2. Problem -->
+  <div class="slide slide-2">
+    <div class="label">The Problem</div>
+    <h2>Fraud hides in <span class="red">connections</span>,<br>not individual transactions</h2>
+    <p class="sub">Money laundering works by moving funds through a <b style="color:#f87171">ring of accounts</b>. Each transfer looks normal — the fraud only appears when you look at the whole network.</p>
+    <div class="bignums" style="margin-top:32px">
+      <div class="bignum"><div class="n red">$3.1T</div><div class="d">LAUNDERED ANNUALLY</div></div>
+      <div class="bignum"><div class="n orange">0.1%</div><div class="d">CURRENTLY DETECTED</div></div>
+      <div class="bignum"><div class="n green">Real-time</div><div class="d">OUR DETECTION SPEED</div></div>
+    </div>
+  </div>
+
+  <!-- 3. Architecture -->
+  <div class="slide slide-3">
+    <div class="label">Architecture</div>
+    <h2>4 Agents, <span class="accent">1 Brain</span></h2>
+    <div class="arch">
+      <div class="agent-col">
+        <div class="agent-box">
+          <span class="a-icon">📡</span>
+          <div><div class="a-name">Data Agent</div><div class="a-sub">Redis Stream · live feed</div></div>
+        </div>
+        <div class="agent-box">
+          <span class="a-icon">🕸️</span>
+          <div><div class="a-name">Graph Agent</div><div class="a-sub">NetworkX · PyG · topology</div></div>
+        </div>
+      </div>
+      <div class="center-col">
+        <div class="conn-line">⟷</div>
+        <div class="brain-box">
+          <div class="b-icon">🧠</div>
+          <div class="b-name">Orchestrator</div>
+          <div class="b-sub">Claude 3.5 Sonnet</div>
+          <div class="b-sub" style="margin-top:4px">ReAct Loop</div>
+        </div>
+        <div class="conn-line">⟷</div>
+      </div>
+      <div class="agent-col">
+        <div class="agent-box">
+          <span class="a-icon">🧬</span>
+          <div><div class="a-name">Inference Agent</div><div class="a-sub">GraphSAGE · /predict</div></div>
+        </div>
+        <div class="agent-box highlight">
+          <span class="a-icon">🚨</span>
+          <div><div class="a-name">Alert Agent</div><div class="a-sub">Structured output · dispatch</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. MCP Tools -->
+  <div class="slide slide-4">
+    <div class="label">Step 2 — Standardized Interfaces</div>
+    <h2>MCP Tools: <span class="green">clear contracts</span><br>between Claude and each agent</h2>
+    <div class="tools-grid">
+      <div class="tool-card">
+        <div class="t-name">predict_fraud</div>
+        <div class="t-desc">GNN model scores src + dst account fraud probability</div>
+      </div>
+      <div class="tool-card">
+        <div class="t-name">get_account_history</div>
+        <div class="t-desc">Risk profile, tx frequency, high-risk neighbor count</div>
+      </div>
+      <div class="tool-card">
+        <div class="t-name">get_graph_topology</div>
+        <div class="t-desc">Cycle detection, degree centrality, 2-hop neighbors</div>
+      </div>
+      <div class="tool-card">
+        <div class="t-name">get_stream_stats</div>
+        <div class="t-desc">Live Redis Stream: consumed count, fraud edges, graph size</div>
+      </div>
+      <div class="tool-card">
+        <div class="t-name">dispatch_action</div>
+        <div class="t-desc">Execute BLOCK / HUMAN_REVIEW / ALLOW based on evidence</div>
+      </div>
+      <div class="tool-card" style="border-color:rgba(99,102,241,.3);background:rgba(99,102,241,.06)">
+        <div class="t-name" style="color:#6366f1">JSON Schema</div>
+        <div class="t-desc">Every tool has typed inputs — Claude knows exactly what to pass</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. ReAct Loop -->
+  <div class="slide slide-5">
+    <div class="label">Step 3 — Agentic Loop</div>
+    <h2>ReAct: <span class="accent">Reason → Act → Observe</span><br>Claude decides how deep to dig</h2>
+    <div class="react-loop">
+      <div class="react-step">
+        <div class="rs-icon">💬</div>
+        <div class="rs-title">Transaction In</div>
+        <div class="rs-sub">New suspicious tx</div>
+      </div>
+      <div class="react-arrow">→</div>
+      <div class="react-step">
+        <div class="rs-icon">🤔</div>
+        <div class="rs-title">Reason</div>
+        <div class="rs-sub">Claude picks tool</div>
+      </div>
+      <div class="react-arrow">→</div>
+      <div class="react-step">
+        <div class="rs-icon">⚙️</div>
+        <div class="rs-title">Act</div>
+        <div class="rs-sub">Call MCP tool</div>
+      </div>
+      <div class="react-arrow">→</div>
+      <div class="react-step">
+        <div class="rs-icon">👁️</div>
+        <div class="rs-title">Observe</div>
+        <div class="rs-sub">Read result</div>
+      </div>
+      <div class="react-arrow">→</div>
+      <div class="react-step" style="border-color:rgba(74,222,128,.4);background:rgba(74,222,128,.06)">
+        <div class="rs-icon">📋</div>
+        <div class="rs-title">Report</div>
+        <div class="rs-sub">Enough evidence?</div>
+      </div>
+    </div>
+    <div class="react-loop-back">↩ If more evidence needed — loop back and call another tool autonomously</div>
+    <p class="sub" style="margin-top:16px;font-size:13px">Claude autonomously decides: <b style="color:#a5b4fc">score first → check history → verify graph topology → dispatch</b></p>
+  </div>
+
+  <!-- 6. Dispatcher -->
+  <div class="slide slide-6">
+    <div class="label">Step 4 — Automated Response</div>
+    <h2>3-Level <span class="accent">Risk Dispatcher</span></h2>
+    <div class="dispatch-rows">
+      <div class="dispatch-row high">
+        <div><div class="prob">≥ 0.8</div></div>
+        <div>
+          <div class="action">🚫 BLOCK + Full Trace Report</div>
+          <div class="desc">Transaction intercepted · Orchestrator triggers multi-hop chain tracing · Structured report generated</div>
+        </div>
+      </div>
+      <div class="dispatch-row medium">
+        <div><div class="prob">0.3–0.8</div></div>
+        <div>
+          <div class="action">👁️ HUMAN REVIEW Queue</div>
+          <div class="desc">Transaction allowed · Flagged for analyst review · Human-in-the-loop decision</div>
+        </div>
+      </div>
+      <div class="dispatch-row low">
+        <div><div class="prob">&lt; 0.3</div></div>
+        <div>
+          <div class="action">✅ ALLOW + Async Update</div>
+          <div class="desc">Fast pass-through · Graph features updated asynchronously in background</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. Demo Scenario -->
+  <div class="slide slide-7">
+    <div class="label">Step 5 — Hackathon Demo</div>
+    <h2>Catching a <span class="red">money laundering ring</span></h2>
+    <div class="scenario">
+      <div class="scene-step">
+        <div class="scene-num">1</div>
+        <div class="scene-text">A <b>$181,097 TRANSFER</b> comes in — looks like a normal transaction on the surface</div>
+      </div>
+      <div class="scene-step">
+        <div class="scene-num">2</div>
+        <div class="scene-text">Claude calls <b>predict_fraud</b> → GNN scores sender at <b style="color:#f87171">0.85</b> — high risk flag triggered</div>
+      </div>
+      <div class="scene-step">
+        <div class="scene-num">3</div>
+        <div class="scene-text">Claude calls <b>get_account_history</b> → <b style="color:#fb923c">14 transactions in 24 hours</b>, classic structuring pattern</div>
+      </div>
+      <div class="scene-step">
+        <div class="scene-num">4</div>
+        <div class="scene-text">Claude calls <b>get_graph_topology</b> → detects <b style="color:#f87171">4-node cycle</b> — circular fund flow confirmed</div>
+      </div>
+      <div class="scene-step">
+        <div class="scene-num">5</div>
+        <div class="scene-text">Claude calls <b>dispatch_action(HIGH)</b> → transaction BLOCKED + full investigation report generated</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. Summary -->
+  <div class="slide slide-8">
+    <div class="label">Summary</div>
+    <h2>Modular, <span class="green">decoupled</span>,<br>and production-ready</h2>
+    <ul class="bullets">
+      <li><span class="dot"></span><div><b>Model-agnostic Orchestrator</b> — swap GraphSAGE for any GNN without changing Claude's logic</div></li>
+      <li><span class="dot"></span><div><b>Standardized MCP Tools</b> — clear JSON Schema contracts between every agent</div></li>
+      <li><span class="dot"></span><div><b>ReAct Loop</b> — Claude reasons autonomously, calls tools based on evidence, not fixed rules</div></li>
+      <li><span class="dot"></span><div><b>3-Level Dispatcher</b> — automated response with human-in-the-loop for borderline cases</div></li>
+    </ul>
+    <div style="margin-top:28px;padding:16px 28px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);border-radius:12px;text-align:center">
+      <div style="font-size:11px;color:#6366f1;letter-spacing:2px;margin-bottom:6px">LIVE DEMO</div>
+      <div style="font-size:16px;font-weight:600">python -m orchestrator.demo_runner</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Nav -->
+<div id="nav">
+  <button class="nav-btn" onclick="prev()">‹</button>
+  <div id="dots"></div>
+  <span id="slide-counter">1 / 8</span>
+  <button class="nav-btn" onclick="next()">›</button>
+</div>
+
+<script>
+const slides = document.querySelectorAll('.slide');
+const total  = slides.length;
+let cur = 0;
+const dotsEl = document.getElementById('dots');
+slides.forEach((_, i) => {
+  const d = document.createElement('div');
+  d.className = 'nav-dot' + (i === 0 ? ' active' : '');
+  d.onclick = () => goTo(i);
+  dotsEl.appendChild(d);
+});
+function goTo(n) {
+  slides[cur].classList.remove('active'); dotsEl.children[cur].classList.remove('active');
+  cur = (n + total) % total;
+  slides[cur].classList.add('active'); dotsEl.children[cur].classList.add('active');
+  document.getElementById('slide-counter').textContent = `${cur+1} / ${total}`;
+}
+function next() { goTo(cur + 1); }
+function prev() { goTo(cur - 1); }
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === ' ') next();
+  if (e.key === 'ArrowLeft') prev();
+});
+</script>
+</body>
+</html>

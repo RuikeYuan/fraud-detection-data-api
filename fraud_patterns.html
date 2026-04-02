@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Financial Fraud Graph Patterns</title>
+<style>
+:root {
+  --bg: #F7F6F3;
+  --surface: #FFFFFF;
+  --border: #E8E6E1;
+  --text-1: #1A1A18;
+  --text-2: #6B6B67;
+  --text-3: #A8A8A4;
+  --red: #C0392B;
+  --red-bg: #FDF0EF;
+  --amber: #D4860A;
+  --amber-bg: #FEF8EE;
+  --green: #2D7A45;
+  --green-bg: #EFF7F2;
+  --font: 'Inter','Helvetica Neue',Arial,sans-serif;
+  --mono: 'JetBrains Mono','Fira Code',monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font); background: var(--bg); color: var(--text-1); font-size: 14px; line-height: 1.6; }
+.shell { max-width: 1200px; margin: 0 auto; padding: 48px 32px 80px; }
+
+header { border-bottom: 1px solid var(--border); padding-bottom: 24px; margin-bottom: 44px; }
+.wordmark { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); font-weight: 500; margin-bottom: 4px; }
+h1 { font-size: 24px; font-weight: 600; letter-spacing: -.02em; }
+.subtitle { font-size: 13px; color: var(--text-2); margin-top: 6px; }
+
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 48px; }
+
+.pattern-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.card-header { padding: 20px 22px 16px; border-bottom: 1px solid var(--border); }
+.pattern-num { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; font-weight: 600; margin-bottom: 6px; }
+.p1 .pattern-num { color: var(--red); }
+.p2 .pattern-num { color: var(--amber); }
+.p3 .pattern-num { color: #6B46C1; }
+.card-title { font-size: 15px; font-weight: 700; letter-spacing: -.01em; margin-bottom: 4px; }
+.card-subtitle { font-size: 11px; color: var(--text-3); font-family: var(--mono); }
+
+.diagram-area { padding: 28px 22px; background: var(--bg); display: flex; justify-content: center; align-items: center; min-height: 220px; }
+
+.card-body { padding: 18px 22px 20px; }
+.tag-row { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
+.tag { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; padding: 3px 8px; border-radius: 3px; }
+.tag-red { background: var(--red-bg); color: var(--red); }
+.tag-amber { background: var(--amber-bg); color: var(--amber); }
+.tag-purple { background: #F3F0FF; color: #6B46C1; }
+.tag-blue { background: #EBF4FF; color: #2B6CB0; }
+
+.feature-list { list-style: none; }
+.feature-list li { font-size: 12px; color: var(--text-2); padding: 4px 0; padding-left: 14px; position: relative; line-height: 1.5; }
+.feature-list li::before { content: '—'; position: absolute; left: 0; color: var(--text-3); }
+.feature-list li b { color: var(--text-1); font-weight: 600; }
+
+.algo-box { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; margin-top: 12px; }
+.algo-title { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); margin-bottom: 5px; }
+.algo-name { font-size: 12px; font-weight: 600; color: var(--text-1); font-family: var(--mono); }
+.algo-desc { font-size: 11px; color: var(--text-2); margin-top: 2px; line-height: 1.5; }
+
+/* node styles shared */
+.node-circle { stroke-width: 2; }
+.node-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
+.edge-arrow { stroke-width: 1.8; fill: none; }
+.edge-label { font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: #A8A8A4; text-anchor: middle; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+<header>
+  <div class="wordmark">GraphSAGE Fraud Detection · Graph Pattern Analysis</div>
+  <h1>Three Financial Fraud Graph Patterns</h1>
+  <div class="subtitle">Visual reference for graph topology features used by the GNN model to detect anomalous transaction behavior</div>
+</header>
+
+<div class="grid">
+
+  <!-- ── Pattern 1: Account Drain & Chain Transfer ───────────────── -->
+  <div class="pattern-card p1">
+    <div class="card-header">
+      <div class="pattern-num">Pattern 01 · Chain Topology</div>
+      <div class="card-title">Account Takeover & Drain</div>
+      <div class="card-subtitle">Linear escape path · balance zeroed</div>
+    </div>
+
+    <div class="diagram-area">
+      <svg width="300" height="180" viewBox="0 0 300 180">
+        <defs>
+          <marker id="arr1" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#C0392B"/>
+          </marker>
+          <marker id="arr1g" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#A8A8A4"/>
+          </marker>
+        </defs>
+
+        <!-- compromised source -->
+        <circle cx="30" cy="90" r="22" class="node-circle" fill="#FDF0EF" stroke="#C0392B"/>
+        <text x="30" y="88" class="node-label" fill="#C0392B">C_src</text>
+        <text x="30" y="100" style="font-size:9px;fill:#C0392B;text-anchor:middle;font-family:monospace">HACKED</text>
+
+        <!-- arrow 1 with amount -->
+        <line x1="52" y1="90" x2="88" y2="90" stroke="#C0392B" stroke-width="2.5" marker-end="url(#arr1)"/>
+        <text x="70" y="82" class="edge-label" fill="#C0392B" style="font-weight:700">100%</text>
+
+        <!-- mule 1 -->
+        <circle cx="112" cy="90" r="20" class="node-circle" fill="#FFF5F5" stroke="#E57373"/>
+        <text x="112" y="88" class="node-label" fill="#C0392B" style="font-size:10px">Mule1</text>
+        <text x="112" y="100" style="font-size:8px;fill:#A8A8A4;text-anchor:middle;font-family:monospace">→ 0</text>
+
+        <!-- arrow 2 -->
+        <line x1="132" y1="90" x2="168" y2="90" stroke="#E57373" stroke-width="2" marker-end="url(#arr1g)"/>
+        <text x="150" y="82" class="edge-label">split</text>
+
+        <!-- mule 2 -->
+        <circle cx="192" cy="90" r="20" class="node-circle" fill="#FAFAFA" stroke="#BDBDBD"/>
+        <text x="192" y="88" class="node-label" fill="#757575" style="font-size:10px">Mule2</text>
+        <text x="192" y="100" style="font-size:8px;fill:#A8A8A4;text-anchor:middle;font-family:monospace">→ 0</text>
+
+        <!-- arrow 3 -->
+        <line x1="212" y1="90" x2="248" y2="90" stroke="#BDBDBD" stroke-width="1.5" marker-end="url(#arr1g)"/>
+        <text x="230" y="82" class="edge-label">…</text>
+
+        <!-- mule N -->
+        <circle cx="270" cy="90" r="18" class="node-circle" fill="#F5F5F5" stroke="#E0E0E0"/>
+        <text x="270" y="90" class="node-label" fill="#9E9E9E" style="font-size:10px">MuleN</text>
+
+        <!-- balance drain annotation -->
+        <rect x="8" y="120" width="284" height="40" rx="5" fill="#FDF0EF" stroke="#F5C6C3" stroke-width="1"/>
+        <text x="150" y="135" style="font-size:10px;fill:#C0392B;text-anchor:middle;font-family:monospace;font-weight:600">Graph Signal: Linear Chain</text>
+        <text x="150" y="150" style="font-size:9px;fill:#A8A8A4;text-anchor:middle;font-family:monospace">oldBalance − newBalance ≈ full amount · high tx velocity</text>
+      </svg>
+    </div>
+
+    <div class="card-body">
+      <div class="tag-row">
+        <span class="tag tag-red">CASH_OUT</span>
+        <span class="tag tag-red">TRANSFER</span>
+        <span class="tag tag-blue">Balance Drain</span>
+      </div>
+      <ul class="feature-list">
+        <li><b>Full-amount drain:</b> oldBalance = amount, newBalance = 0</li>
+        <li><b>Chain topology:</b> each mule immediately re-forwards funds</li>
+        <li><b>Velocity spike:</b> transaction rate far exceeds account baseline</li>
+        <li><b>GNN signal:</b> high-degree path with consecutively drained nodes</li>
+      </ul>
+      <div class="algo-box">
+        <div class="algo-title">Detection Algorithm</div>
+        <div class="algo-name">Longest Path + Balance Feature</div>
+        <div class="algo-desc">nx.dag_longest_path() · filter nodes where (oldBal − newBal) / oldBal ≥ 0.95</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Pattern 2: Circular Layering / Money Laundering ─────────── -->
+  <div class="pattern-card p2">
+    <div class="card-header">
+      <div class="pattern-num">Pattern 02 · Cycle Topology</div>
+      <div class="card-title">Circular Layering</div>
+      <div class="card-subtitle">Closed-loop cycle · amount attrition</div>
+    </div>
+
+    <div class="diagram-area">
+      <svg width="260" height="200" viewBox="0 0 260 200">
+        <defs>
+          <marker id="arr2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#D4860A"/>
+          </marker>
+        </defs>
+
+        <!-- 4 nodes in a cycle: A(top), B(right), C(bottom), D(left) -->
+        <!-- A -->
+        <circle cx="130" cy="38" r="24" class="node-circle" fill="#FEF8EE" stroke="#D4860A"/>
+        <text x="130" y="36" class="node-label" fill="#D4860A">Acc A</text>
+        <text x="130" y="48" style="font-size:8px;fill:#D4860A;text-anchor:middle;font-family:monospace">ORIGIN</text>
+
+        <!-- B -->
+        <circle cx="212" cy="110" r="22" class="node-circle" fill="#FFFAF0" stroke="#E8A838"/>
+        <text x="212" y="110" class="node-label" fill="#B7790F" style="font-size:10px">Acc B</text>
+
+        <!-- C -->
+        <circle cx="130" cy="178" r="22" class="node-circle" fill="#FFFAF0" stroke="#E8A838"/>
+        <text x="130" y="178" class="node-label" fill="#B7790F" style="font-size:10px">Acc C</text>
+
+        <!-- D -->
+        <circle cx="48" cy="110" r="22" class="node-circle" fill="#FFFAF0" stroke="#E8A838"/>
+        <text x="48" y="110" class="node-label" fill="#B7790F" style="font-size:10px">Acc D</text>
+
+        <!-- A → B -->
+        <path d="M152,52 Q185,70 196,90" stroke="#D4860A" stroke-width="2" fill="none" marker-end="url(#arr2)"/>
+        <text x="185" y="65" class="edge-label" fill="#D4860A" style="font-weight:600">1000</text>
+
+        <!-- B → C -->
+        <path d="M200,130 Q185,158 152,168" stroke="#D4860A" stroke-width="2" fill="none" marker-end="url(#arr2)"/>
+        <text x="195" y="158" class="edge-label" fill="#D4860A" style="font-weight:600">980</text>
+
+        <!-- C → D -->
+        <path d="M108,168 Q75,158 62,130" stroke="#D4860A" stroke-width="2" fill="none" marker-end="url(#arr2)"/>
+        <text x="68" y="158" class="edge-label" fill="#D4860A" style="font-weight:600">960</text>
+
+        <!-- D → A (completes cycle) -->
+        <path d="M60,90 Q75,62 108,52" stroke="#C0392B" stroke-width="2.5" fill="none" stroke-dasharray="5,3" marker-end="url(#arr2)"/>
+        <text x="68" y="65" class="edge-label" fill="#C0392B" style="font-weight:700">940 ↩</text>
+
+        <!-- center label -->
+        <text x="130" y="107" style="font-size:10px;fill:#D4860A;text-anchor:middle;font-family:monospace;font-weight:700">CYCLE</text>
+        <text x="130" y="120" style="font-size:9px;fill:#A8A8A4;text-anchor:middle;font-family:monospace">SCC detected</text>
+      </svg>
+    </div>
+
+    <div class="card-body">
+      <div class="tag-row">
+        <span class="tag tag-amber">TRANSFER</span>
+        <span class="tag tag-amber">SCC</span>
+        <span class="tag tag-blue">Cycle Detection</span>
+      </div>
+      <ul class="feature-list">
+        <li><b>Closed loop:</b> A → B → C → D → A, funds return to origin</li>
+        <li><b>Amount attrition:</b> each hop reduces amount slightly to evade matching</li>
+        <li><b>Hard for SQL:</b> requires multi-level JOINs; trivial with graph models</li>
+        <li><b>GNN signal:</b> nodes in same strongly connected component share embeddings</li>
+      </ul>
+      <div class="algo-box">
+        <div class="algo-title">Detection Algorithms</div>
+        <div class="algo-name">Tarjan SCC · Johnson Cycles</div>
+        <div class="algo-desc">nx.strongly_connected_components(G) · nx.simple_cycles(G) — finds all closed loops regardless of depth</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Pattern 3: Fan-out / Layering ──────────────────────────── -->
+  <div class="pattern-card p3">
+    <div class="card-header">
+      <div class="pattern-num">Pattern 03 · Star Topology</div>
+      <div class="card-title">Fan-out / Structuring</div>
+      <div class="card-subtitle">One-to-many · sub-threshold splitting</div>
+    </div>
+
+    <div class="diagram-area">
+      <svg width="280" height="200" viewBox="0 0 280 200">
+        <defs>
+          <marker id="arr3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#6B46C1"/>
+          </marker>
+        </defs>
+
+        <!-- center fraud node -->
+        <circle cx="140" cy="100" r="28" class="node-circle" fill="#F3F0FF" stroke="#6B46C1" stroke-width="2.5"/>
+        <text x="140" y="97" class="node-label" fill="#6B46C1" style="font-size:11px">C_fraud</text>
+        <text x="140" y="110" style="font-size:8px;fill:#6B46C1;text-anchor:middle;font-family:monospace">out-deg ↑↑</text>
+
+        <!-- 7 receiver nodes arranged in a circle -->
+        <!-- top -->
+        <circle cx="140" cy="18" r="16" class="node-circle" fill="#FAF5FF" stroke="#9F7AEA"/>
+        <text x="140" y="18" class="node-label" fill="#6B46C1" style="font-size:9px">m1</text>
+        <line x1="140" y1="72" x2="140" y2="34" stroke="#6B46C1" stroke-width="1.5" marker-end="url(#arr3)"/>
+        <text x="152" y="55" class="edge-label" fill="#6B46C1">&lt;threshold</text>
+
+        <!-- top-right -->
+        <circle cx="218" cy="42" r="16" class="node-circle" fill="#FAF5FF" stroke="#9F7AEA"/>
+        <text x="218" y="42" class="node-label" fill="#6B46C1" style="font-size:9px">m2</text>
+        <line x1="163" y1="78" x2="206" y2="54" stroke="#6B46C1" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+        <!-- right -->
+        <circle cx="252" cy="100" r="16" class="node-circle" fill="#FAF5FF" stroke="#9F7AEA"/>
+        <text x="252" y="100" class="node-label" fill="#6B46C1" style="font-size:9px">m3</text>
+        <line x1="168" y1="100" x2="236" y2="100" stroke="#6B46C1" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+        <!-- bottom-right -->
+        <circle cx="218" cy="158" r="16" class="node-circle" fill="#FAF5FF" stroke="#9F7AEA"/>
+        <text x="218" y="158" class="node-label" fill="#6B46C1" style="font-size:9px">m4</text>
+        <line x1="163" y1="122" x2="206" y2="146" stroke="#6B46C1" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+        <!-- bottom -->
+        <circle cx="140" cy="182" r="16" class="node-circle" fill="#FAF5FF" stroke="#9F7AEA"/>
+        <text x="140" y="182" class="node-label" fill="#6B46C1" style="font-size:9px">m5</text>
+        <line x1="140" y1="128" x2="140" y2="166" stroke="#6B46C1" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+        <!-- bottom-left -->
+        <circle cx="62" cy="158" r="16" class="node-circle" fill="#FAF5FF" stroke="#9F7AEA"/>
+        <text x="62" y="158" class="node-label" fill="#6B46C1" style="font-size:9px">m6</text>
+        <line x1="117" y1="122" x2="74" y2="146" stroke="#6B46C1" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+        <!-- left -->
+        <circle cx="28" cy="100" r="16" class="node-circle" fill="#FAF5FF" stroke="#9F7AEA"/>
+        <text x="28" y="100" class="node-label" fill="#6B46C1" style="font-size:9px">m7</text>
+        <line x1="112" y1="100" x2="44" y2="100" stroke="#6B46C1" stroke-width="1.5" marker-end="url(#arr3)"/>
+        <text x="78" y="92" class="edge-label" fill="#6B46C1">&lt;threshold</text>
+
+        <!-- no edges between mule nodes — intentional -->
+      </svg>
+    </div>
+
+    <div class="card-body">
+      <div class="tag-row">
+        <span class="tag tag-purple">TRANSFER</span>
+        <span class="tag tag-purple">Fan-out</span>
+        <span class="tag tag-blue">Out-degree Spike</span>
+      </div>
+      <ul class="feature-list">
+        <li><b>One-to-many:</b> single account fans out to many unrelated accounts rapidly</li>
+        <li><b>Sub-threshold:</b> each amount just below regulatory reporting limit</li>
+        <li><b>No lateral edges:</b> receiver accounts have zero connection to each other</li>
+        <li><b>GNN signal:</b> abnormal out-degree burst; neighborhood heterogeneity spike</li>
+      </ul>
+      <div class="algo-box">
+        <div class="algo-title">Detection Algorithm</div>
+        <div class="algo-name">Out-degree Anomaly · Ego Graph</div>
+        <div class="algo-desc">nx.out_degree_centrality(G) · nx.ego_graph(G, node, radius=1) — flag nodes with sudden degree burst vs. 7-day baseline</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- comparison table -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+  <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+    <span style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);font-weight:600">Graph Pattern Comparison</span>
+  </div>
+  <table style="width:100%;border-collapse:collapse">
+    <thead>
+      <tr style="background:var(--bg)">
+        <th style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:600;padding:10px 20px;text-align:left;border-bottom:1px solid var(--border)">Pattern</th>
+        <th style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:600;padding:10px 20px;text-align:left;border-bottom:1px solid var(--border)">Graph Topology</th>
+        <th style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:600;padding:10px 20px;text-align:left;border-bottom:1px solid var(--border)">Key Feature</th>
+        <th style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:600;padding:10px 20px;text-align:left;border-bottom:1px solid var(--border)">NetworkX API</th>
+        <th style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:600;padding:10px 20px;text-align:left;border-bottom:1px solid var(--border)">GNN Embedding Signal</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="padding:12px 20px;border-bottom:1px solid var(--border)"><span style="background:var(--red-bg);color:var(--red);font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px">Account Drain</span></td>
+        <td style="padding:12px 20px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-2)">Linear chain</td>
+        <td style="padding:12px 20px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-2)">newBalance = 0, velocity spike</td>
+        <td style="padding:12px 20px;border-bottom:1px solid var(--border);font-family:monospace;font-size:11px;color:var(--text-1)">dag_longest_path()</td>
+        <td style="padding:12px 20px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-2)">Sequential drained-node neighborhood</td>
+      </tr>
+      <tr>
+        <td style="padding:12px 20px;border-bottom:1px solid var(--border)"><span style="background:var(--amber-bg);color:var(--amber);font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px">Circular Layering</span></td>
+        <td style="padding:12px 20px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-2)">Directed cycle / SCC</td>
+        <td style="padding:12px 20px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-2)">Funds return to origin, amount attrition</td>
+        <td style="padding:12px 20px;border-bottom:1px solid var(--border);font-family:monospace;font-size:11px;color:var(--text-1)">strongly_connected_components()<br>simple_cycles()</td>
+        <td style="padding:12px 20px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-2)">Nodes in same SCC share similar embeddings</td>
+      </tr>
+      <tr>
+        <td style="padding:12px 20px"><span style="background:#F3F0FF;color:#6B46C1;font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px">Fan-out</span></td>
+        <td style="padding:12px 20px;font-size:12px;color:var(--text-2)">Star (hub + spokes)</td>
+        <td style="padding:12px 20px;font-size:12px;color:var(--text-2)">Out-degree burst, no lateral edges</td>
+        <td style="padding:12px 20px;font-family:monospace;font-size:11px;color:var(--text-1)">out_degree_centrality()<br>ego_graph()</td>
+        <td style="padding:12px 20px;font-size:12px;color:var(--text-2)">Hub node isolated from receiver subgraph</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div style="margin-top:32px;font-size:11px;color:var(--text-3);display:flex;justify-content:space-between">
+  <span>Fraud Detection System · PaySim Dataset · GraphSAGE GNN</span>
+  <span>Graph patterns detected via NetworkX · Embeddings learned via PyTorch Geometric</span>
+</div>
+
+</div>
+</body>
+</html>
