@@ -1,20 +1,160 @@
 version: "3.9"
 
+# ── 共用環境變量 ──────────────────────────────────────────────────────
+x-kafka-env: &kafka-env
+  KAFKA_BROKERS: kafka:9092
+
+x-airflow-env: &airflow-env
+  AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
+  AIRFLOW__CORE__FERNET_KEY: ""
+  AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+
 services:
 
-  # ── Redis Stream (message broker) ────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: fraud-redis
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # 基礎設施層
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  # ── Kafka（KRaft 模式，無需 ZooKeeper）───────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: fraud-kafka
     ports:
-      - "6379:6379"
+      - "9092:9092"     # 外部訪問（本機開發用）
+      - "9093:9093"     # Controller port（KRaft）
+    environment:
+      # KRaft 模式配置（無 ZooKeeper）
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Topic 默認配置
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_NUM_PARTITIONS: 3
+      # 消息保留 7 天
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_RETENTION_BYTES: -1    # 不限制大小，只按時間
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qg"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Kafka UI（可視化監控，開發用）────────────────────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: fraud-kafka-ui
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: fraud-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # ── Airflow 元數據庫 ──────────────────────────────────────────────────
+  airflow-db:
+    image: postgres:15-alpine
+    container_name: fraud-airflow-db
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  # ── Data Pipeline API (graph preprocessing) ──────────────────────────
+  # ── Airflow 初始化（只跑一次）────────────────────────────────────────
+  airflow-init:
+    image: apache/airflow:2.9.0
+    container_name: fraud-airflow-init
+    environment:
+      <<: *airflow-env
+    volumes:
+      - ./airflow/requirements.txt:/opt/airflow/extra-requirements.txt:ro
+    command: >
+      bash -c "
+        pip install --no-cache-dir -r /opt/airflow/extra-requirements.txt &&
+        airflow db migrate &&
+        airflow users create
+          --username admin --password admin
+          --firstname Admin --lastname User
+          --role Admin --email admin@fraud.local
+      "
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+    restart: "no"
+
+  # ── Airflow Scheduler ─────────────────────────────────────────────────
+  airflow-scheduler:
+    image: apache/airflow:2.9.0
+    container_name: fraud-airflow-scheduler
+    command: >
+      bash -c "
+        pip install --no-cache-dir -r /opt/airflow/extra-requirements.txt &&
+        airflow scheduler
+      "
+    environment:
+      <<: *airflow-env
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags:ro
+      - ./airflow/requirements.txt:/opt/airflow/extra-requirements.txt:ro
+      - ./fraud-detection-data-api-main:/opt/fraud-detection/fraud-detection-data-api-main:ro
+      # 共享卷：ETL DAG 在此目錄寫入 heterodata_latest.pt + builder.pkl
+      # gnn-api 從 /app/checkpoints 讀取，兩個容器掛載同一個卷
+      - gnn_checkpoints:/opt/fraud-detection/fraud-detection-data-api-main/fraud-gnn-model/checkpoints
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ── Airflow Web UI ────────────────────────────────────────────────────
+  airflow-webserver:
+    image: apache/airflow:2.9.0
+    container_name: fraud-airflow-webserver
+    command: webserver
+    ports:
+      - "8089:8080"    # http://localhost:8089 → Airflow UI
+    environment:
+      <<: *airflow-env
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags:ro
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # 應用層
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  # ── Data Pipeline API（改用 Kafka Consumer）───────────────────────────
   data-api:
     build:
       context: ./fraud-detection-data-api-main/fraud-detection-data-api-main
@@ -23,12 +163,13 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - REDIS_URL=redis://redis:6379
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_CONSUMER_GROUP=graph-builder
     depends_on:
-      redis:
+      kafka:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/stream/status')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/stream/status')"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -45,33 +186,44 @@ services:
       - CHECKPOINT_DIR=/app/checkpoints
       - REBUILD_INTERVAL=200
       - DATA_API_URL=http://data-api:8000
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_CONSUMER_GROUP=gnn-inference    # 獨立 group，不影響 graph-builder
+    volumes:
+      # 與 airflow-scheduler 共享同一個卷，ETL DAG 生成的文件 gnn-api 可直接讀取
+      - gnn_checkpoints:/app/checkpoints
     depends_on:
       data-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 10s
       timeout: 5s
       retries: 3
 
-  # ── Stream Producer (PaySim CSV → Redis, 终端 3) ─────────────────────
-  stream-producer:
+  # ── Kafka Producer ────────────────────────────────────────────────────
+  kafka-producer:
     build:
       context: ./fraud-detection-data-api-main/fraud-detection-data-api-main
       dockerfile: Dockerfile
-    container_name: fraud-stream-producer
-    command: ["python", "run_stream.py", "--speed", "100"]
-    environment:
-      - REDIS_URL=redis://redis:6379
-      - PAYSIM_CSV=/data/transactions.csv
+    container_name: fraud-kafka-producer
+    command:
+      - python
+      - -m
+      - pipeline.kafka_producer
+      - --csv
+      - /data/transactions.csv
+      - --brokers
+      - kafka:9092
+      - --speed
+      - "100"
     volumes:
       - ./fraud-detection-data-api-main/fraud-detection-data-api-main/data:/data:ro
     depends_on:
-      redis:
+      kafka:
         condition: service_healthy
-    restart: "no"   # 回放完一遍后自然退出
+    restart: "no"    # 回放完一遍自然退出
 
-  # ── Batch Scoring Server (Redis → scored results, 终端 2) ─────────────
+  # ── Batch Scoring Server ────────────────
   batch-server:
     build:
       context: ./fraud-detection-data-api-main/fraud-gnn-model
@@ -81,17 +233,22 @@ services:
     ports:
       - "8091:8091"
     environment:
-      - REDIS_URL=redis://redis:6379
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_CONSUMER_GROUP=batch-scorer
+    volumes:
+      - gnn_checkpoints:/app/checkpoints
     depends_on:
-      redis:
+      kafka:
+        condition: service_healthy
+      gnn-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8091/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8091/health')"]
       interval: 10s
       timeout: 5s
       retries: 3
 
-  # ── Demo Frontend (Claude report generator) ──────────────────────────
+  # ── Demo Frontend（Claude report generator）──────────────────────────
   demo:
     build:
       context: .
@@ -103,6 +260,16 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GNN_API_URL=http://gnn-api:8001
       - DATA_API_URL=http://data-api:8000
+      - BATCH_SERVER_URL=http://batch-server:8091
     depends_on:
       gnn-api:
         condition: service_healthy
+      batch-server:
+        condition: service_healthy
+
+# ── 持久化卷 ──────────────────────────────────────────────────────────
+volumes:
+  kafka_data:        # Kafka 消息持久化
+  airflow_db_data:   # Airflow 元數據庫
+  airflow_logs:      # Airflow 任務執行日誌
+  gnn_checkpoints:   # gnn-api checkpoints（與 airflow-scheduler 共享）

@@ -51,24 +51,13 @@ from pathlib import Path
 # ── 配置 ──────────────────────────────────────────────────────────────
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 DATA_API_URL      = os.getenv("DATA_API_URL", "http://localhost:8000")
-REDIS_URL         = os.getenv("REDIS_URL", "redis://redis-service:6379")
-STREAM_NAME       = "transactions:stream"
+BATCH_SERVER_URL  = os.getenv("BATCH_SERVER_URL", "http://localhost:8091")
 BATCH_SIZE        = 100
 
 client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 app    = FastAPI()
 
 _transactions: list[dict] = []
-
-# ── Batch state（/batch 端点累计统计）────────────────────────────────
-_batch_state = {
-    "last_id": "0",
-    "total_processed": 0,
-    "total_fraud": 0,
-    "total_medium": 0,
-    "batch_number": 0,
-    "last_picks": [],
-}
 
 # ── Mock 数据：~10% 欺诈率（1 HIGH, 2 MEDIUM, 7 LOW）────────────────
 MOCK_TRANSACTIONS = [
@@ -449,84 +438,34 @@ async def investigation_reports():
     return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
 
 
-# ── GET /batch：实时交易批次（读 Redis，降级到模拟数据）────────────
+# ── GET /batch：实时交易批次（代理到 batch-server）────────────────
 @app.get("/batch")
 def get_batch():
     try:
-        import redis as redis_lib
-        r = redis_lib.from_url(REDIS_URL, decode_responses=True, socket_timeout=2)
-        entries = r.xread({STREAM_NAME: _batch_state["last_id"]}, count=BATCH_SIZE, block=2000)
-        r.close()
-
-        if not entries:
-            # Redis 可达但无新数据
-            return {
-                "transactions": [], "batch_size": 0,
-                "total_processed": _batch_state["total_processed"],
-                "total_fraud":     _batch_state["total_fraud"],
-                "total_medium":    _batch_state["total_medium"],
-                "batch_number":    _batch_state["batch_number"],
-                "message": "No new transactions in stream — run_stream.py not active",
-            }
-
-        stream_name, messages = entries[0]
-        if messages:
-            _batch_state["last_id"] = messages[-1][0]
-
-        txs, batch_fraud, batch_medium = [], 0, 0
-        for msg_id, fields in messages:
-            src_prob = float(fields.get("src_fraud_prob", 0.05))
-            dst_prob = float(fields.get("dst_fraud_prob", 0.05))
-            risk_score = src_prob * 0.7 + dst_prob * 0.3
-            risk = "HIGH" if risk_score >= 0.55 else ("MEDIUM" if risk_score >= 0.22 else "LOW")
-            if risk == "HIGH":   batch_fraud  += 1
-            elif risk == "MEDIUM": batch_medium += 1
-            txs.append({
-                "src":      fields.get("src_account", ""),
-                "dst":      fields.get("dst_account", ""),
-                "amount":   float(fields.get("amount", 0)),
-                "type":     fields.get("type", "UNKNOWN"),
-                "step":     int(fields.get("step", 0)),
-                "src_prob": round(src_prob, 4),
-                "dst_prob": round(dst_prob, 4),
-                "risk":     risk,
-                "reason":   "Live GNN inference result",
-            })
-
+        resp = httpx.get(f"{BATCH_SERVER_URL}/batch", timeout=10.0)
+        return resp.json()
     except Exception:
-        # Redis 不可达 → 模拟数据降级
-        _batch_state["batch_number"] += 1
-        txs = _mock_batch_transactions(_batch_state["batch_number"])
+        # batch-server 不可达 → 模拟数据降级
+        txs = _mock_batch_transactions(1)
         batch_fraud  = sum(1 for t in txs if t["risk"] == "HIGH")
         batch_medium = sum(1 for t in txs if t["risk"] == "MEDIUM")
-
-    _batch_state["total_processed"] += len(txs)
-    _batch_state["total_fraud"]     += batch_fraud
-    _batch_state["total_medium"]    += batch_medium
-    _batch_state["batch_number"]    += 1
-
-    # 每层挑1条代表性交易
-    picks = {}
-    for tx in sorted(txs, key=lambda t: t["src_prob"] * 0.7 + t["dst_prob"] * 0.3, reverse=True):
-        if tx["risk"] not in picks:
-            picks[tx["risk"]] = tx
-        if len(picks) == 3:
-            break
-    _batch_state["last_picks"] = list(picks.values())
-
-    return {
-        "transactions":    txs,
-        "batch_size":      len(txs),
-        "batch_number":    _batch_state["batch_number"],
-        "total_processed": _batch_state["total_processed"],
-        "total_fraud":     _batch_state["total_fraud"],
-        "total_medium":    _batch_state["total_medium"],
-    }
+        return {
+            "transactions":    txs,
+            "batch_size":      len(txs),
+            "batch_number":    1,
+            "total_processed": len(txs),
+            "total_fraud":     batch_fraud,
+            "total_medium":    batch_medium,
+        }
 
 
 @app.get("/picks")
 def get_picks():
-    return {"picks": _batch_state["last_picks"], "batch_number": _batch_state["batch_number"]}
+    try:
+        resp = httpx.get(f"{BATCH_SERVER_URL}/picks", timeout=5.0)
+        return resp.json()
+    except Exception:
+        return {"picks": [], "batch_number": 0}
 
 
 # ── GET /report：流式生成并返回 HTML 报告 ──────────────────────────

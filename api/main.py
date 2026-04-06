@@ -5,13 +5,11 @@ FastAPI 应用程序：用于提供异构图（HeteroData）预处理 API
 以及实时数据流消费者（Stream Consumer）端点。
 """
 
-import asyncio
 import os
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pipeline.data_pipeline import DataPipeline  # 负责图构建的核心逻辑
-from pipeline.stream_consumer import StreamConsumer # 负责监听 Redis 消息的消费者
 from pathlib import Path
 
 # 创建 FastAPI 实例
@@ -24,22 +22,12 @@ DATA_PATH = BASE_DIR / "data"
 # 实例化 DataPipeline，用于处理离线交易数据
 pipeline = DataPipeline(data_dir=DATA_PATH)
 
-# --- 初始化实时流消费者 ---
-# 从环境变量获取 Redis 连接地址，默认为本地
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-consumer = StreamConsumer(redis_url=REDIS_URL)
-# 用于管理后台异步任务的句柄
-_consumer_task: asyncio.Task | None = None
-
 @app.on_event("startup")
 async def startup():
     """
     服务启动时的钩子函数：
-    1. 自动执行一次全量数据加载，构建初始异构图。
-    2. 开启后台异步任务，持续监听 Redis 中的新交易。
+    自动执行一次全量数据加载，构建初始异构图。
     """
-    global _consumer_task
-    
     # 步骤 A: 加载初始数据并构建 PyG 异构图对象
     try:
         df = pipeline.load_transaction_data("transactions.csv")
@@ -48,15 +36,9 @@ async def startup():
     except Exception as e:
         print(f"[Startup Error] {e}")
 
-    # 步骤 B: 启动异步流消费者任务，不阻塞主进程
-    _consumer_task = asyncio.create_task(consumer.start())
-
 @app.on_event("shutdown")
 async def shutdown():
-    """服务关闭时的钩子函数：安全停止消费者并取消后台任务"""
-    await consumer.stop()
-    if _consumer_task:
-        _consumer_task.cancel()
+    pass
 
 @app.get("/heterodata")
 def get_heterodata_summary():

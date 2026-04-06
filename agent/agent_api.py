@@ -18,7 +18,7 @@ FastAPI Agent 后端  ←→  Claude API (tool_use)
   get_graph_stats      - 图数据库统计
   get_heterodata       - HeteroData 摘要
   get_health           - 服务健康检查
-  get_stream_status    - Redis Stream 消费状态
+  get_stream_status    - Kafka 消费状态
 """
 
 import json
@@ -113,7 +113,7 @@ TOOLS = [
     },
     {
         "name": "get_stream_status",
-        "description": "查询 Redis Stream 消费者的运行状态和已处理的交易数量。",
+        "description": "查询 Kafka 消费者的运行状态和已处理的交易数量。",
         "input_schema": {"type": "object", "properties": {}},
     },
 ]

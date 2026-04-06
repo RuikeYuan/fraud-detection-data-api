@@ -5,7 +5,7 @@ FastAPI 服务入口。
 
 启动时行为：
   1. 从本地 transactions.csv 加载初始图（热身数据）
-  2. 启动 Redis Stream 消费者后台任务，持续接收 PaySim 回放的交易并增量更新图
+  2. 启动 Kafka Consumer 后台任务，持续接收 PaySim 回放的交易并增量更新图
 
 API 端点：
   GET  /heterodata        返回当前图的 PyG HeteroData 摘要
@@ -21,7 +21,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 from pipeline.data_pipeline import DataPipeline
-from pipeline.stream_consumer import StreamConsumer
+from pipeline.kafka_consumer import KafkaStreamConsumer
 
 # --------------------------------------------------------------------------
 # 全局对象
@@ -31,11 +31,14 @@ DATA_PATH = BASE_DIR / "data"
 
 pipeline = DataPipeline(data_dir=DATA_PATH)
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-consumer = StreamConsumer(
+KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "localhost:9092")
+KAFKA_GROUP   = os.getenv("KAFKA_CONSUMER_GROUP", "graph-builder")
+consumer = KafkaStreamConsumer(
     pipeline=pipeline,
-    redis_url=REDIS_URL,
-    rebuild_interval=500,   # 每 500 条重建一次 HeteroData
+    bootstrap_servers=KAFKA_BROKERS,
+    group_id=KAFKA_GROUP,
+    batch_size=2000,         # 加大批次加速追趕歷史消息
+    rebuild_interval=5000,  # 每 5000 条重建一次 HeteroData（減少重建開銷）
 )
 
 
@@ -54,12 +57,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Startup] 初始图加载失败（可忽略）: {e}")
 
-    # 2. 启动 Stream 消费者（后台 Task，持续接收 PaySim 回放数据）
+    # 2. 启动 Kafka 消费者（后台 Task，持续接收 PaySim 回放数据）
     try:
         await consumer.start()
-        print("[Startup] Stream 消费者已启动")
+        print(f"[Startup] Kafka 消费者已启动 | brokers: {KAFKA_BROKERS} | group: {KAFKA_GROUP}")
     except Exception as e:
-        print(f"[Startup] Stream 消费者启动失败（Redis 未就绪？）: {e}")
+        print(f"[Startup] Kafka 消费者启动失败（Kafka 未就绪？）: {e}")
 
     yield  # 服务运行中
 
@@ -99,9 +102,10 @@ def refresh_graph():
 
 @app.get("/stream/status")
 def get_stream_status():
-    """返回 Stream 消费进度和图的当前规模。"""
+    """返回 Kafka 消费进度和图的当前规模。"""
     return {
-        "redis_url":    REDIS_URL,
-        "stream_name":  consumer.stream_name,
+        "kafka_brokers": KAFKA_BROKERS,
+        "topic":         consumer.topic,
+        "group_id":      consumer.group_id,
         **consumer.stats,
     }

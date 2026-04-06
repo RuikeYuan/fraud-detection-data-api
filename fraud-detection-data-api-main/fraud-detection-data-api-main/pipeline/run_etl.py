@@ -17,8 +17,7 @@ run_etl.py  —  离线 ETL 批处理入口脚本
 
 【与 API 服务的区别】
   本脚本（run_etl.py）：手动运行，输出结果后退出，适合离线调试。
-  API 服务（api/main.py）：持续运行，通过 HTTP 接口提供数据，
-    还集成了 Redis Stream 消费者实时更新图结构。
+  API 服务（api/main.py）：持续运行，通过 HTTP 接口提供数据。
 
 运行方式：
     cd fraud-detection-data-api-main

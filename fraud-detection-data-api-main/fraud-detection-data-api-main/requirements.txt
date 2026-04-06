@@ -4,5 +4,6 @@ pandas
 networkx
 torch
 torch-geometric
-redis[hiredis]
 websockets
+# Kafka 支持
+confluent-kafka>=2.3.0

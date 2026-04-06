@@ -28,7 +28,7 @@ orchestrator/mcp_server.py  —  MCP 工具定义（Tool Schemas）
   predict_fraud       → GNN 评分：给交易双方打欺诈概率分
   get_account_history → 账户画像：历史交易频率、金额、风险分
   get_graph_topology  → 图结构：度中心性、环路、高风险邻居
-  get_stream_stats    → 流统计：Redis Stream 实时消费进度
+  get_stream_stats    → 流统计：Kafka 实时消费进度
   dispatch_action     → 自动响应：拦截 / 人工审核 / 放行
 """
 
@@ -126,7 +126,7 @@ TOOLS = [
     {
         # ── 工具 4：Stream 实时统计 ──────────────────────────────────
         "name": "get_stream_stats",
-        "description": "Get real-time Redis Stream processing statistics: consumed count, fraud edge count, graph size.",
+        "description": "Get real-time Kafka processing statistics: consumed count, fraud edge count, graph size.",
         # 用于了解系统当前处理规模：
         # - 已处理多少笔交易（consumed）
         # - 发现了多少条欺诈边（fraud_edges）

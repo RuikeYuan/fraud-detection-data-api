@@ -10,28 +10,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc g++ && \
     rm -rf /var/lib/apt/lists/*
 
+# numpy 必須先裝，否則 torch-scatter/torch-sparse 從源碼編譯時會失敗
+RUN pip install --no-cache-dir numpy>=1.24.0
+
 # Install CPU-only PyTorch first (much smaller than default CUDA build)
 RUN pip install --no-cache-dir \
     torch==2.2.0 --index-url https://download.pytorch.org/whl/cpu
 
-# Install torch-geometric and its sparse deps (CPU)
-RUN pip install --no-cache-dir \
-    torch-geometric==2.5.3 \
-    torch-scatter torch-sparse \
-    -f https://data.pyg.org/whl/torch-2.2.0+cpu.html
+# Install torch-geometric（不安裝 torch-scatter/torch-sparse，ARM64 無預編譯 wheel）
+# FraudGraphSAGE 使用的 SAGEConv/HeteroConv 只依賴 torch-geometric 核心
+RUN pip install --no-cache-dir torch-geometric==2.5.3
 
 # Install remaining Python deps
 COPY requirements.txt ./
-RUN pip install --no-cache-dir \
-    fastapi>=0.110.0 \
-    "uvicorn[standard]>=0.29.0" \
-    pandas>=2.0.0 \
-    numpy>=1.24.0 \
-    scikit-learn>=1.3.0 \
-    networkx>=3.0 \
-    pydantic>=2.0.0 \
-    httpx>=0.27.0 \
-    "redis>=5.0.0"
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
 COPY api/         ./api/

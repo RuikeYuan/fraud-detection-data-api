@@ -19,7 +19,7 @@ orchestrator/dispatcher.py  —  三级风险自动分发器
 【内存队列说明】
   当前使用 Python 列表作为内存队列（_blocked_txs、_review_queue、_allowed_log）。
   这是 hackathon 快速原型版本，生产环境应替换为：
-    - Redis Queue / Celery（分布式任务队列）
+    - Celery（分布式任务队列）
     - PostgreSQL / MongoDB（持久化存储，防止服务重启丢失数据）
     - Kafka / RabbitMQ（高并发消息队列，支持多消费者并行处理）
 

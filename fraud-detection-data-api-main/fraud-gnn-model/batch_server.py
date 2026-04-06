@@ -1,49 +1,97 @@
 """
 batch_server.py — Real-time batch scoring server
 
-Reads 100 transactions per batch from Redis Stream, scores them using
+Reads transactions from Kafka topic (transactions.raw), scores them using
 fraud_probs.json (GNN output), and exposes a REST API for the dashboard.
-
-Usage:
-  C:\\Users\\admin\\.conda\\envs\\rag_env\\python.exe batch_server.py
 
 Endpoints:
   GET /batch   — fetch next 100 transactions, return scored results + picks
   GET /picks   — 3 representative transactions (HIGH/MEDIUM/LOW) for Claude Agent
   GET /stats   — cumulative totals
-  GET /health  — redis + model check
+  GET /health  — kafka + model check
 """
 
+import collections
 import json
+import logging
 import os
 import random
+import threading
 from pathlib import Path
 
-import redis
 import uvicorn
+from confluent_kafka import Consumer, KafkaError
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-REDIS_URL   = os.environ.get("REDIS_URL", "redis://localhost:6379")
-STREAM_NAME = "transactions:stream"
-BATCH_SIZE  = 100
-PROBS_PATH  = Path("checkpoints/fraud_probs.json")
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+KAFKA_BROKERS = os.environ.get("KAFKA_BROKERS", "localhost:9092")
+KAFKA_TOPIC   = "transactions.raw"
+KAFKA_GROUP   = os.environ.get("KAFKA_CONSUMER_GROUP", "batch-scorer")
+BATCH_SIZE    = 100
+PROBS_PATH    = Path("checkpoints/fraud_probs.json")
 DEFAULT_PROB = 0.05
 
 if PROBS_PATH.exists():
     FRAUD_PROBS = json.loads(PROBS_PATH.read_text())
-    print(f"[INFO] Loaded {len(FRAUD_PROBS):,} account probabilities")
+    logger.info("Loaded %d account probabilities", len(FRAUD_PROBS))
 else:
     FRAUD_PROBS = {}
-    print(f"[WARN] fraud_probs.json not found — using default {DEFAULT_PROB}")
+    logger.warning("fraud_probs.json not found — using default %.2f", DEFAULT_PROB)
+
+# ── Kafka 後台消費線程 + buffer ────────────────────────────────────────
+_kafka_buffer: collections.deque = collections.deque()
+_kafka_lock   = threading.Lock()
+_kafka_ok     = False   # 健康狀態標記
+
+
+def _kafka_consume_thread():
+    """後台線程：持續 poll Kafka，將原始 bytes 推入 buffer。"""
+    global _kafka_ok
+    consumer = Consumer({
+        "bootstrap.servers":  KAFKA_BROKERS,
+        "group.id":           KAFKA_GROUP,
+        "auto.offset.reset":  "earliest",
+        "enable.auto.commit": False,
+        "heartbeat.interval.ms":  3000,
+        "session.timeout.ms":     30000,
+        "max.poll.interval.ms":   300000,
+    })
+    consumer.subscribe([KAFKA_TOPIC])
+    logger.info("Kafka 消費者已啟動 | brokers=%s | group=%s | topic=%s",
+                KAFKA_BROKERS, KAFKA_GROUP, KAFKA_TOPIC)
+    try:
+        while True:
+            msgs = consumer.consume(num_messages=500, timeout=2.0)
+            if msgs:
+                _kafka_ok = True
+                with _kafka_lock:
+                    for msg in msgs:
+                        if msg.error():
+                            if msg.error().code() != KafkaError._PARTITION_EOF:
+                                logger.error("Kafka 錯誤: %s", msg.error())
+                            continue
+                        _kafka_buffer.append(msg.value())
+                consumer.commit(asynchronous=True)
+            else:
+                _kafka_ok = True   # 連得到但沒消息也算健康
+    except Exception as e:
+        logger.error("Kafka 消費線程異常: %s", e)
+    finally:
+        consumer.close()
+
+
+# 啟動後台消費線程（daemon=True 確保主程序退出時自動終止）
+threading.Thread(target=_kafka_consume_thread, daemon=True, name="kafka-consumer").start()
 
 state = {
-    "last_id":         "0",
     "total_processed": 0,
     "total_fraud":     0,
     "total_medium":    0,
     "batch_number":    0,
-    "last_picks":      [],   # 3 representative txs from latest batch
+    "last_picks":      [],
 }
 
 app = FastAPI(title="Fraud Batch Scoring API")
@@ -132,53 +180,51 @@ def score(src: str, dst: str, amount: float,
 
 @app.get("/batch")
 def get_batch():
-    try:
-        r = redis.from_url(REDIS_URL, decode_responses=True)
-        entries = r.xread({STREAM_NAME: state["last_id"]}, count=BATCH_SIZE, block=2000)
-        r.close()
-    except Exception as e:
-        return {"error": str(e), "transactions": [], "batch_size": 0,
-                "total_processed": state["total_processed"],
-                "total_fraud": state["total_fraud"],
-                "total_medium": state["total_medium"],
-                "batch_number": state["batch_number"],
-                "picks": state["last_picks"]}
+    # 從 buffer 中取出最多 BATCH_SIZE 條
+    with _kafka_lock:
+        batch_raw = []
+        for _ in range(BATCH_SIZE):
+            if not _kafka_buffer:
+                break
+            batch_raw.append(_kafka_buffer.popleft())
 
-    if not entries:
-        return {"transactions": [], "batch_size": 0,
-                "total_processed": state["total_processed"],
-                "total_fraud": state["total_fraud"],
-                "total_medium": state["total_medium"],
-                "batch_number": state["batch_number"],
-                "picks": state["last_picks"],
-                "message": "No new transactions — start run_stream.py to feed Redis"}
-
-    stream_name, messages = entries[0]
-    if messages:
-        state["last_id"] = messages[-1][0]
+    if not batch_raw:
+        return {
+            "transactions": [], "batch_size": 0,
+            "total_processed": state["total_processed"],
+            "total_fraud":     state["total_fraud"],
+            "total_medium":    state["total_medium"],
+            "batch_number":    state["batch_number"],
+            "picks":           state["last_picks"],
+            "message": "No buffered transactions yet — Kafka consumer is catching up",
+        }
 
     txs = []
     batch_fraud = batch_medium = 0
 
-    for msg_id, fields in messages:
-        # ── Correct field names from stream_producer._row_to_msg ──────────────
+    for raw in batch_raw:
+        try:
+            fields = json.loads(raw.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            continue
+
         src         = fields.get("src_account", "")
         dst         = fields.get("dst_account", "")
         amount      = float(fields.get("amount", 0))
         tx_type     = fields.get("type", "UNKNOWN")
         is_fraud    = int(fields.get("is_fraud", 0))
         step        = int(fields.get("step", 0))
-        old_bal_src = float(fields.get("old_bal_src", 0))
-        new_bal_src = float(fields.get("new_bal_src", 0))
-        old_bal_dst = float(fields.get("old_bal_dst", 0))
+        old_bal_src = float(fields.get("old_balance_src", 0))
+        new_bal_src = float(fields.get("new_balance_src", 0))
+        old_bal_dst = float(fields.get("old_balance_dst", 0))
 
         s = score(src, dst, amount, old_bal_src, new_bal_src, old_bal_dst, tx_type, is_fraud)
 
-        if s["risk"] == "HIGH":   batch_fraud  += 1
+        if s["risk"] == "HIGH":     batch_fraud  += 1
         elif s["risk"] == "MEDIUM": batch_medium += 1
 
         txs.append({
-            "msg_id": msg_id, "src": src, "dst": dst,
+            "src": src, "dst": dst,
             "amount": round(amount, 2), "type": tx_type,
             "step": step, "actual_fraud": is_fraud,
             **s,
@@ -241,13 +287,12 @@ def get_stats():
 
 @app.get("/health")
 def health():
-    try:
-        r = redis.from_url(REDIS_URL, decode_responses=True)
-        r.ping(); r.close()
-        redis_ok = True
-    except Exception:
-        redis_ok = False
-    return {"status": "ok", "redis": redis_ok, "model_accounts": len(FRAUD_PROBS)}
+    return {
+        "status":         "ok",
+        "kafka":          _kafka_ok,
+        "buffer_size":    len(_kafka_buffer),
+        "model_accounts": len(FRAUD_PROBS),
+    }
 
 
 if __name__ == "__main__":

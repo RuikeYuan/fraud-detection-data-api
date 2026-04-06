@@ -18,7 +18,7 @@ orchestrator/agent.py  —  Claude ReAct 欺诈调查 Orchestrator
   - predict_fraud:       调用 GNN API，对交易两端账户打分
   - get_account_history: 查询账户的历史交易统计（通过图谱 API）
   - get_graph_topology:  分析账户在图中的位置（度、邻居、环路检测）
-  - get_stream_stats:    获取 Redis Stream 的实时消费统计
+  - get_stream_stats:    获取 Kafka 的实时消费统计
   - dispatch_action:     根据风险等级执行自动响应（拦截/人工审核/放行）
 
 【与 demo_runner.py 的关系】
@@ -166,7 +166,7 @@ def _get_graph_topology(account_id: str, depth: int = 2) -> dict:
 
 def _get_stream_stats() -> dict:
     """
-    获取 Redis Stream 消费者的实时统计信息。
+    获取 Kafka 消费者的实时统计信息。
 
     返回包含：
     - consumed：已消费的交易总条数
