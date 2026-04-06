@@ -157,7 +157,7 @@ services:
   # ── Data Pipeline API（改用 Kafka Consumer）───────────────────────────
   data-api:
     build:
-      context: ./fraud-detection-data-api-main/fraud-detection-data-api-main
+      context: ./fraud-detection-data-api-main/data-processing
       dockerfile: Dockerfile
     container_name: fraud-data-api
     ports:
@@ -203,7 +203,7 @@ services:
   # ── Kafka Producer ────────────────────────────────────────────────────
   kafka-producer:
     build:
-      context: ./fraud-detection-data-api-main/fraud-detection-data-api-main
+      context: ./fraud-detection-data-api-main/data-processing
       dockerfile: Dockerfile
     container_name: fraud-kafka-producer
     command:
@@ -217,7 +217,7 @@ services:
       - --speed
       - "100"
     volumes:
-      - ./fraud-detection-data-api-main/fraud-detection-data-api-main/data:/data:ro
+      - ./fraud-detection-data-api-main/data-processing/data:/data:ro
     depends_on:
       kafka:
         condition: service_healthy
