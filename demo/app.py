@@ -58,6 +58,7 @@ client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 app    = FastAPI()
 
 _transactions: list[dict] = []
+_batch_state:  dict       = {}
 
 # ── Mock 数据：~10% 欺诈率（1 HIGH, 2 MEDIUM, 7 LOW）────────────────
 MOCK_TRANSACTIONS = [
@@ -441,14 +442,18 @@ async def investigation_reports():
 # ── GET /batch：实时交易批次（代理到 batch-server）────────────────
 @app.get("/batch")
 def get_batch():
+    global _batch_state
     try:
         resp = httpx.get(f"{BATCH_SERVER_URL}/batch", timeout=10.0)
-        return resp.json()
+        data = resp.json()
+        _batch_state["last_picks"] = data.get("transactions", data.get("picks", []))
+        return data
     except Exception:
         # batch-server 不可达 → 模拟数据降级
         txs = _mock_batch_transactions(1)
         batch_fraud  = sum(1 for t in txs if t["risk"] == "HIGH")
         batch_medium = sum(1 for t in txs if t["risk"] == "MEDIUM")
+        _batch_state["last_picks"] = txs
         return {
             "transactions":    txs,
             "batch_size":      len(txs),

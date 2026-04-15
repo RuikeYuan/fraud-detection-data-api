@@ -47,3 +47,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Large data files
+fraud-detection-data-api-main/data-processing/data/transactions.csv
