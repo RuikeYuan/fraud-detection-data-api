@@ -94,10 +94,7 @@ services:
       bash -c "
         pip install --no-cache-dir -r /opt/airflow/extra-requirements.txt &&
         airflow db migrate &&
-        airflow users create
-          --username admin --password admin
-          --firstname Admin --lastname User
-          --role Admin --email admin@fraud.local
+        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@fraud.local
       "
     depends_on:
       airflow-db:
@@ -248,6 +245,91 @@ services:
       timeout: 5s
       retries: 3
 
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # 大數據處理層（Spark + Flink）
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  # ── Spark 批處理（按需啟動）────────────────────────────────────────
+  #   docker compose run spark-batch
+  #   docker compose run spark-batch --csv /data/transactions.csv --steps 100
+  spark-batch:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: fraud-spark-batch
+    volumes:
+      - ./fraud-detection-data-api-main/data-processing/data:/data:ro
+      - spark_output:/data/spark_output
+    environment:
+      - SPARK_MODE=local
+    profiles:
+      - spark           # 只在 --profile spark 時啟動
+    restart: "no"
+
+  # ── Flink 流處理（持續運行）───────────────────────────────────────
+  #   docker compose --profile flink up flink-streaming
+  flink-streaming:
+    build:
+      context: ./flink
+      dockerfile: Dockerfile
+    container_name: fraud-flink-streaming
+    command:
+      - --kafka-brokers
+      - kafka:9092
+      - --input-topic
+      - transactions.raw
+      - --alert-topic
+      - transactions.alerts
+      - --enriched-topic
+      - transactions.enriched
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    profiles:
+      - flink           # 只在 --profile flink 時啟動
+    restart: unless-stopped
+
+  # ── Spark Stats API（Dashboard 數據源）─────────────────────────
+  spark-api:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    container_name: fraud-spark-api
+    entrypoint: ["python", "api.py"]
+    command: []
+    ports:
+      - "8092:8092"
+    environment:
+      - SPARK_OUTPUT=/data/spark_output
+    volumes:
+      - spark_output:/data/spark_output:ro
+    profiles:
+      - dashboard
+    restart: unless-stopped
+
+  # ── Flink Stream API（Dashboard 數據源）────────────────────────
+  flink-api:
+    build:
+      context: ./flink
+      dockerfile: Dockerfile
+    container_name: fraud-flink-api
+    entrypoint: ["python3", "api.py"]
+    command: []
+    ports:
+      - "8093:8093"
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - ENRICHED_TOPIC=transactions.enriched
+      - ALERT_TOPIC=transactions.alerts
+    depends_on:
+      kafka:
+        condition: service_healthy
+    profiles:
+      - dashboard
+    restart: unless-stopped
+
   # ── Demo Frontend（Claude report generator）──────────────────────────
   demo:
     build:
@@ -273,3 +355,4 @@ volumes:
   airflow_db_data:   # Airflow 元數據庫
   airflow_logs:      # Airflow 任務執行日誌
   gnn_checkpoints:   # gnn-api checkpoints（與 airflow-scheduler 共享）
+  spark_output:      # Spark 批處理輸出（Parquet）

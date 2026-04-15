@@ -1,0 +1,1289 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spark + Flink · Real-Time Processing Dashboard</title>
+<style>
+:root {
+  --bg:        #0F1117;
+  --surface:   #181B25;
+  --surface-2: #1E2231;
+  --border:    #2A2E3B;
+  --text-1:    #EAEDF3;
+  --text-2:    #8B90A0;
+  --text-3:    #565B6B;
+  --accent:    #6C8EEF;
+  --accent-bg: rgba(108,142,239,.1);
+  --spark:     #E8833A;
+  --spark-bg:  rgba(232,131,58,.12);
+  --flink:     #28B5E1;
+  --flink-bg:  rgba(40,181,225,.12);
+  --risk-h:    #EF4444;  --risk-h-bg: rgba(239,68,68,.12);
+  --risk-m:    #F59E0B;  --risk-m-bg: rgba(245,158,11,.12);
+  --risk-l:    #22C55E;  --risk-l-bg: rgba(34,197,94,.12);
+  --green:     #22C55E;
+  --red:       #EF4444;
+  --chart-grid:#1E2231;
+  --font: 'Inter','SF Pro Display','Helvetica Neue',sans-serif;
+  --mono: 'JetBrains Mono','SF Mono','Fira Code',monospace;
+  --radius: 12px;
+  --shadow: 0 2px 12px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--bg);color:var(--text-1);font-size:13px;line-height:1.6;overflow-x:hidden}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--surface)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+a{color:var(--accent);text-decoration:none}
+
+.shell{max-width:1440px;margin:0 auto;padding:28px 32px 60px}
+
+/* ── Header ── */
+header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid var(--border);padding-bottom:20px;margin-bottom:28px}
+.brand{display:flex;align-items:center;gap:14px}
+.logo-cluster{display:flex;gap:6px}
+.logo-dot{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;letter-spacing:.02em}
+.logo-spark{background:var(--spark-bg);color:var(--spark)}
+.logo-flink{background:var(--flink-bg);color:var(--flink)}
+.titles .wordmark{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-3);font-weight:500}
+.titles h1{font-size:22px;font-weight:700;letter-spacing:-.02em;margin-top:2px}
+.header-right{display:flex;align-items:center;gap:16px}
+.status-pill{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:5px 14px}
+.status-pill .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.ts-display{font-size:11px;color:var(--text-3);font-family:var(--mono)}
+
+/* ── Tab navigation ── */
+.tab-bar{display:flex;gap:2px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:3px;margin-bottom:28px;width:fit-content}
+.tab{padding:8px 20px;border-radius:8px;font-size:12px;font-weight:600;letter-spacing:.02em;cursor:pointer;color:var(--text-2);transition:all .2s;user-select:none}
+.tab:hover{color:var(--text-1)}
+.tab.active{background:var(--accent-bg);color:var(--accent)}
+.tab.spark-active{background:var(--spark-bg);color:var(--spark)}
+.tab.flink-active{background:var(--flink-bg);color:var(--flink)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+
+/* ── KPI strip ── */
+.kpi-strip{display:grid;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:28px}
+.kpi-strip.cols-6{grid-template-columns:repeat(6,1fr)}
+.kpi-strip.cols-5{grid-template-columns:repeat(5,1fr)}
+.kpi-strip.cols-4{grid-template-columns:repeat(4,1fr)}
+.kpi{background:var(--surface);padding:18px 16px;position:relative}
+.kpi-label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);font-weight:500;margin-bottom:6px}
+.kpi-value{font-size:28px;font-weight:800;letter-spacing:-.03em;line-height:1}
+.kpi-sub{font-size:10px;color:var(--text-3);margin-top:4px;font-family:var(--mono)}
+.kpi-value.spark{color:var(--spark)}
+.kpi-value.flink{color:var(--flink)}
+.kpi-value.accent{color:var(--accent)}
+.kpi-value.red{color:var(--risk-h)}
+.kpi-value.amber{color:var(--risk-m)}
+.kpi-value.green{color:var(--risk-l)}
+.kpi-trend{position:absolute;top:16px;right:16px;font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px}
+.kpi-trend.up{color:var(--green);background:var(--risk-l-bg)}
+.kpi-trend.down{color:var(--red);background:var(--risk-h-bg)}
+
+/* ── Cards grid ── */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:28px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.card-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border)}
+.card-title{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2)}
+.card-badge{font-size:10px;font-weight:600;padding:3px 8px;border-radius:4px;letter-spacing:.04em}
+.card-badge.spark{background:var(--spark-bg);color:var(--spark)}
+.card-badge.flink{background:var(--flink-bg);color:var(--flink)}
+.card-badge.live{background:var(--risk-l-bg);color:var(--green)}
+.card-body{padding:20px}
+
+/* ── Charts (Canvas) ── */
+canvas{width:100%!important;height:auto!important}
+.chart-container{position:relative;height:220px;width:100%}
+.chart-container canvas{position:absolute;inset:0}
+.chart-legend{display:flex;gap:16px;padding:12px 20px;border-top:1px solid var(--border);flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-2)}
+.legend-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+
+/* ── Mini bar chart (CSS) ── */
+.mini-bars{display:flex;flex-direction:column;gap:8px}
+.mini-bar-row{display:flex;align-items:center;gap:10px}
+.mini-bar-label{font-size:11px;color:var(--text-2);width:90px;flex-shrink:0;text-align:right}
+.mini-bar-track{flex:1;height:20px;background:var(--surface-2);border-radius:4px;overflow:hidden;position:relative}
+.mini-bar-fill{height:100%;border-radius:4px;transition:width .8s cubic-bezier(.22,1,.36,1);display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-size:10px;font-weight:700;color:#fff;min-width:fit-content}
+.mini-bar-value{font-size:11px;font-family:var(--mono);color:var(--text-2);width:72px;flex-shrink:0;text-align:right}
+
+/* ── Table ── */
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+thead tr{background:var(--surface-2)}
+th{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:600;padding:10px 14px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
+td{font-size:12px;padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--surface-2)}
+.mono{font-family:var(--mono);font-size:11px}
+
+/* Risk badges */
+.rbadge{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:4px;display:inline-block}
+.rbadge.CRITICAL,.rbadge.HIGH{background:var(--risk-h-bg);color:var(--risk-h)}
+.rbadge.MEDIUM{background:var(--risk-m-bg);color:var(--risk-m)}
+.rbadge.LOW{background:var(--risk-l-bg);color:var(--risk-l)}
+.type-pill{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:var(--surface-2);color:var(--text-2)}
+
+/* ── Signal tags ── */
+.signal-tags{display:flex;gap:4px;flex-wrap:wrap}
+.signal-tag{font-size:9px;font-weight:600;letter-spacing:.04em;padding:2px 6px;border-radius:3px;background:var(--risk-h-bg);color:var(--risk-h);white-space:nowrap}
+.signal-tag.warn{background:var(--risk-m-bg);color:var(--risk-m)}
+
+/* ── Live feed header ── */
+.live-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.live-status{display:flex;align-items:center;gap:8px}
+.live-label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+.countdown-wrap{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-3)}
+.countdown-bar-track{width:100px;height:3px;background:var(--border);border-radius:2px;overflow:hidden}
+.countdown-bar{height:100%;background:var(--accent);border-radius:2px;transition:width 1s linear}
+#cntBar-spark{background:var(--spark)}
+#cntBar-flink{background:var(--flink)}
+
+/* ── Topology SVG ── */
+.topo-wrap{display:flex;justify-content:center;padding:10px 0}
+.topo-wrap svg text{font-family:var(--mono);font-size:10px}
+
+/* ── Donut chart ── */
+.donut-wrap{display:flex;align-items:center;justify-content:center;gap:24px;padding:8px 0}
+.donut-legend{display:flex;flex-direction:column;gap:6px}
+.donut-legend-item{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-2)}
+.donut-legend-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+.donut-legend-val{font-family:var(--mono);font-weight:600;color:var(--text-1);margin-left:auto;min-width:48px;text-align:right}
+
+/* ── Timeline ── */
+.timeline{display:flex;flex-direction:column;gap:0;max-height:300px;overflow-y:auto;padding:0 4px}
+.tl-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);font-size:12px;align-items:flex-start}
+.tl-item:last-child{border-bottom:none}
+.tl-time{font-family:var(--mono);font-size:10px;color:var(--text-3);width:56px;flex-shrink:0;padding-top:2px}
+.tl-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:4px}
+.tl-content{flex:1;min-width:0}
+.tl-title{font-weight:600;font-size:12px;margin-bottom:2px}
+.tl-desc{font-size:11px;color:var(--text-2);line-height:1.5}
+
+/* Row animation */
+@keyframes rowSlide{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.row-new td{animation:rowSlide .35s ease}
+
+/* Footer */
+footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);display:flex;justify-content:space-between}
+
+/* ── Global Nav ── */
+.gnav{display:flex;align-items:center;gap:0;background:var(--surface);border-bottom:1px solid var(--border);padding:0 32px;font-size:12px;position:sticky;top:0;z-index:200;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.gnav-brand{font-weight:700;letter-spacing:-.02em;font-size:13px;color:var(--text-1);padding:10px 0;margin-right:24px;white-space:nowrap;text-decoration:none}
+.gnav-brand span{color:var(--spark)}
+.gnav a{color:var(--text-2);text-decoration:none;padding:10px 14px;font-weight:500;letter-spacing:.01em;transition:all .15s;border-bottom:2px solid transparent;white-space:nowrap}
+.gnav a:hover{color:var(--text-1);background:var(--surface-2)}
+.gnav a.active{color:var(--text-1);border-bottom-color:var(--accent);font-weight:600}
+.gnav-spacer{flex:1}
+.gnav-tag{font-size:10px;color:var(--text-3);font-family:var(--mono);letter-spacing:.04em}
+
+/* Responsive */
+@media(max-width:1024px){
+  .grid-2,.grid-3{grid-template-columns:1fr}
+  .kpi-strip.cols-6{grid-template-columns:repeat(3,1fr)}
+  .kpi-strip.cols-5{grid-template-columns:repeat(3,1fr)}
+  .gnav{overflow-x:auto;padding:0 16px}
+}
+</style>
+</head>
+<body>
+<nav class="gnav">
+  <a href="/" class="gnav-brand"><span>◆</span> FraudShield</a>
+  <a href="/">Dashboard</a>
+  <a href="/live">Live Feed</a>
+  <a href="/spark-flink" class="active">Spark + Flink</a>
+  <a href="/patterns">Graph Patterns</a>
+  <a href="/slides">Slides</a>
+  <a href="/powerbi">Power BI</a>
+  <span class="gnav-spacer"></span>
+  <span class="gnav-tag">Spark 3.5 + Flink 1.20</span>
+</nav>
+<div class="shell">
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- Header                                                        -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<header>
+  <div class="brand">
+    <div class="logo-cluster">
+      <div class="logo-dot logo-spark">S</div>
+      <div class="logo-dot logo-flink">F</div>
+    </div>
+    <div class="titles">
+      <div class="wordmark">Fraud Detection · Big Data Processing Layer</div>
+      <h1>Spark Batch + Flink Stream Dashboard</h1>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="status-pill"><div class="dot"></div>Pipeline Active</div>
+    <div class="ts-display" id="tsDisplay">—</div>
+  </div>
+</header>
+
+<!-- Tab bar -->
+<div class="tab-bar">
+  <div class="tab spark-active active" data-tab="overview" onclick="switchTab('overview',this)">Overview</div>
+  <div class="tab" data-tab="spark" onclick="switchTab('spark',this)">Spark Batch</div>
+  <div class="tab" data-tab="flink" onclick="switchTab('flink',this)">Flink Stream</div>
+  <div class="tab" data-tab="alerts" onclick="switchTab('alerts',this)">Alerts</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- TAB: Overview                                                  -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="tab-panel active" id="panel-overview">
+
+  <!-- KPIs -->
+  <div class="kpi-strip cols-6">
+    <div class="kpi">
+      <div class="kpi-label">Spark Processed</div>
+      <div class="kpi-value spark" id="ov-spark-total">0</div>
+      <div class="kpi-sub">batch transactions</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Flink Processed</div>
+      <div class="kpi-value flink" id="ov-flink-total">0</div>
+      <div class="kpi-sub">stream events</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Critical Alerts</div>
+      <div class="kpi-value red" id="ov-critical">0</div>
+      <div class="kpi-sub">flink rule engine</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">High Risk</div>
+      <div class="kpi-value red" id="ov-high">0</div>
+      <div class="kpi-sub">score ≥ 0.5</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Avg Latency</div>
+      <div class="kpi-value green" id="ov-latency">—</div>
+      <div class="kpi-sub">flink p50 ms</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Fraud Rate</div>
+      <div class="kpi-value amber" id="ov-rate">0%</div>
+      <div class="kpi-sub">detected / total</div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- Processing Throughput Chart -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Processing Throughput</span>
+        <span class="card-badge live">Live</span>
+      </div>
+      <div class="card-body">
+        <div class="chart-container"><canvas id="chart-throughput"></canvas></div>
+      </div>
+      <div class="chart-legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--spark)"></div>Spark Batch (tx/min)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--flink)"></div>Flink Stream (event/s)</div>
+      </div>
+    </div>
+
+    <!-- Risk Distribution Donut -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Risk Distribution</span>
+        <span class="card-badge flink">Flink</span>
+      </div>
+      <div class="card-body">
+        <div class="donut-wrap">
+          <canvas id="chart-donut" width="160" height="160"></canvas>
+          <div class="donut-legend" id="donut-legend">
+            <div class="donut-legend-item"><div class="donut-legend-dot" style="background:var(--risk-h)"></div>Critical<span class="donut-legend-val" id="dl-critical">0</span></div>
+            <div class="donut-legend-item"><div class="donut-legend-dot" style="background:var(--risk-m)"></div>High<span class="donut-legend-val" id="dl-high">0</span></div>
+            <div class="donut-legend-item"><div class="donut-legend-dot" style="background:#3B82F6"></div>Medium<span class="donut-legend-val" id="dl-medium">0</span></div>
+            <div class="donut-legend-item"><div class="donut-legend-dot" style="background:var(--risk-l)"></div>Low<span class="donut-legend-val" id="dl-low">0</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Architecture Topology -->
+  <div class="card" style="margin-bottom:28px">
+    <div class="card-header">
+      <span class="card-title">Real-Time Data Flow Topology</span>
+    </div>
+    <div class="card-body">
+      <div class="topo-wrap">
+        <svg width="960" height="480" viewBox="0 0 960 480">
+          <defs>
+            <marker id="ah" markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0, 7 3, 0 6" fill="var(--text-3)"/></marker>
+            <marker id="ah-spark" markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0, 7 3, 0 6" fill="var(--spark)"/></marker>
+            <marker id="ah-flink" markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0, 7 3, 0 6" fill="var(--flink)"/></marker>
+            <marker id="ah-accent" markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0, 7 3, 0 6" fill="var(--accent)"/></marker>
+            <marker id="ah-green" markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0, 7 3, 0 6" fill="var(--green)"/></marker>
+          </defs>
+
+          <!-- ── CSV Source ── -->
+          <rect x="10" y="185" width="100" height="55" rx="8" fill="var(--surface-2)" stroke="var(--border)"/>
+          <text x="60" y="208" text-anchor="middle" fill="var(--text-2)" font-weight="600">CSV</text>
+          <text x="60" y="225" text-anchor="middle" fill="var(--text-3)" style="font-size:8px">transactions.csv</text>
+
+          <!-- ── kafka_producer.py ── -->
+          <rect x="160" y="120" width="120" height="50" rx="8" fill="var(--surface-2)" stroke="var(--border)"/>
+          <text x="220" y="142" text-anchor="middle" fill="var(--text-2)" font-weight="600">kafka_producer</text>
+          <text x="220" y="158" text-anchor="middle" fill="var(--text-3)" style="font-size:8px">docker-compose 容器</text>
+
+          <!-- ── Kafka ── -->
+          <rect x="340" y="120" width="120" height="50" rx="8" fill="var(--accent-bg)" stroke="var(--accent)" stroke-opacity=".4"/>
+          <text x="400" y="142" text-anchor="middle" fill="var(--accent)" font-weight="700">Kafka</text>
+          <text x="400" y="158" text-anchor="middle" fill="var(--text-3)" style="font-size:8px">transactions.raw</text>
+
+          <!-- ── Flink ── -->
+          <rect x="530" y="50" width="130" height="50" rx="8" fill="var(--flink-bg)" stroke="var(--flink)" stroke-opacity=".4"/>
+          <text x="595" y="72" text-anchor="middle" fill="var(--flink)" font-weight="700">Flink</text>
+          <text x="595" y="88" text-anchor="middle" fill="var(--text-3)" style="font-size:8px">Rule Engine</text>
+
+          <!-- ── data-api ── -->
+          <rect x="530" y="185" width="130" height="50" rx="8" fill="var(--surface-2)" stroke="var(--accent)" stroke-opacity=".3"/>
+          <text x="595" y="207" text-anchor="middle" fill="var(--accent)" font-weight="600">data-api :8000</text>
+          <text x="595" y="223" text-anchor="middle" fill="var(--text-3)" style="font-size:8px">Kafka Consumer</text>
+
+          <!-- ── Kafka alerts ── -->
+          <rect x="720" y="25" width="120" height="45" rx="8" fill="var(--risk-m-bg)" stroke="var(--risk-m)" stroke-opacity=".4"/>
+          <text x="780" y="44" text-anchor="middle" fill="var(--risk-m)" font-weight="700">Kafka Alerts</text>
+          <text x="780" y="59" text-anchor="middle" fill="var(--text-3)" style="font-size:8px">transactions.alerts</text>
+
+          <!-- ── DataPipeline ── -->
+          <rect x="530" y="260" width="130" height="50" rx="8" fill="var(--surface-2)" stroke="var(--border)"/>
+          <text x="595" y="280" text-anchor="middle" fill="var(--text-2)" font-weight="600">DataPipeline</text>
+          <text x="595" y="296" text-anchor="middle" fill="var(--text-3)" style="font-size:8px">graph_builder → HeteroData</text>
+
+          <!-- ── GNN API ── -->
+          <rect x="720" y="195" width="130" height="55" rx="8" fill="var(--surface-2)" stroke="var(--green)" stroke-opacity=".4"/>
+          <text x="785" y="218" text-anchor="middle" fill="var(--green)" font-weight="700">GNN API :8001</text>
+          <text x="785" y="235" text-anchor="middle" fill="var(--text-3)" style="font-size:8px">GraphSAGE 推理</text>
+
+          <!-- ── train.py ── -->
+          <rect x="160" y="260" width="120" height="55" rx="8" fill="var(--surface-2)" stroke="var(--green)" stroke-opacity=".3"/>
+          <text x="220" y="280" text-anchor="middle" fill="var(--green)" font-weight="600">train.py</text>
+          <text x="220" y="296" text-anchor="middle" fill="var(--text-3)" style="font-size:8px">⏰ Retrain 每週一 3:00</text>
+          <text x="220" y="308" text-anchor="middle" fill="var(--text-3)" style="font-size:8px">→ best_model.pt</text>
+
+          <!-- ── Dashboard ── -->
+          <rect x="720" y="340" width="130" height="55" rx="8" fill="var(--accent-bg)" stroke="var(--accent)" stroke-opacity=".5"/>
+          <text x="785" y="363" text-anchor="middle" fill="var(--accent)" font-weight="700">Dashboard :8081</text>
+          <text x="785" y="380" text-anchor="middle" fill="var(--text-3)" style="font-size:8px">Demo Frontend</text>
+
+          <!-- ── Spark ── -->
+          <rect x="160" y="370" width="120" height="55" rx="8" fill="var(--spark-bg)" stroke="var(--spark)" stroke-opacity=".4"/>
+          <text x="220" y="392" text-anchor="middle" fill="var(--spark)" font-weight="700">Spark</text>
+          <text x="220" y="408" text-anchor="middle" fill="var(--text-3)" style="font-size:8px">⏰ Spark DAG 每天 2:30</text>
+
+          <!-- ── Parquet ── -->
+          <rect x="340" y="375" width="100" height="40" rx="8" fill="var(--surface-2)" stroke="var(--border)"/>
+          <text x="390" y="400" text-anchor="middle" fill="var(--text-2)" style="font-size:10px">Parquet</text>
+
+          <!-- ── spark/api.py ── -->
+          <rect x="500" y="370" width="130" height="45" rx="8" fill="var(--spark-bg)" stroke="var(--spark)" stroke-opacity=".3"/>
+          <text x="565" y="390" text-anchor="middle" fill="var(--spark)" font-weight="600">spark/api.py</text>
+          <text x="565" y="405" text-anchor="middle" fill="var(--text-3)" style="font-size:8px">:8092</text>
+
+          <!-- ══ Arrows ══ -->
+
+          <!-- CSV → kafka_producer -->
+          <line x1="110" y1="200" x2="156" y2="155" stroke="var(--text-3)" stroke-width="1.5" marker-end="url(#ah)"/>
+          <!-- CSV → train.py -->
+          <line x1="110" y1="225" x2="156" y2="275" stroke="var(--text-3)" stroke-width="1.5" marker-end="url(#ah)"/>
+          <!-- CSV → Spark -->
+          <line x1="80" y1="240" x2="80" y2="390" stroke="var(--text-3)" stroke-width="1.5"/>
+          <line x1="80" y1="390" x2="156" y2="395" stroke="var(--text-3)" stroke-width="1.5" marker-end="url(#ah)"/>
+
+          <!-- kafka_producer → Kafka -->
+          <line x1="280" y1="145" x2="336" y2="145" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#ah-accent)"/>
+
+          <!-- Kafka → Flink -->
+          <line x1="430" y1="130" x2="526" y2="80" stroke="var(--flink)" stroke-width="1.5" marker-end="url(#ah-flink)"/>
+          <!-- Kafka → data-api -->
+          <line x1="430" y1="160" x2="526" y2="205" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#ah-accent)"/>
+
+          <!-- Flink → Kafka alerts -->
+          <line x1="660" y1="70" x2="716" y2="50" stroke="var(--risk-m)" stroke-width="1.5" marker-end="url(#ah)"/>
+
+          <!-- data-api → DataPipeline -->
+          <line x1="595" y1="235" x2="595" y2="256" stroke="var(--text-3)" stroke-width="1.5" marker-end="url(#ah)"/>
+
+          <!-- DataPipeline → GNN API -->
+          <line x1="660" y1="280" x2="740" y2="250" stroke="var(--green)" stroke-width="1.5" marker-end="url(#ah-green)"/>
+
+          <!-- train.py → GNN API (best_model.pt) -->
+          <line x1="280" y1="280" x2="716" y2="220" stroke="var(--green)" stroke-width="1.5" stroke-dasharray="6 3" marker-end="url(#ah-green)"/>
+          <text x="480" y="245" text-anchor="middle" fill="var(--text-3)" style="font-size:8px">best_model.pt 載入</text>
+
+          <!-- Kafka alerts → Dashboard -->
+          <line x1="780" y1="70" x2="785" y2="336" stroke="var(--risk-m)" stroke-width="1.5" marker-end="url(#ah)" stroke-dasharray="5 3"/>
+
+          <!-- GNN API → Dashboard -->
+          <line x1="785" y1="250" x2="785" y2="336" stroke="var(--green)" stroke-width="1.5" marker-end="url(#ah-green)"/>
+
+          <!-- Spark → Parquet -->
+          <line x1="280" y1="395" x2="336" y2="395" stroke="var(--spark)" stroke-width="1.5" marker-end="url(#ah-spark)"/>
+          <!-- Parquet → spark/api.py -->
+          <line x1="440" y1="395" x2="496" y2="393" stroke="var(--spark)" stroke-width="1.5" marker-end="url(#ah-spark)"/>
+          <!-- spark/api.py → Dashboard -->
+          <line x1="630" y1="385" x2="716" y2="370" stroke="var(--spark)" stroke-width="1.5" marker-end="url(#ah-spark)"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Alerts Timeline -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Recent Alert Timeline</span>
+      <span class="card-badge flink">Flink</span>
+    </div>
+    <div class="card-body">
+      <div class="timeline" id="ov-timeline">
+        <div style="text-align:center;color:var(--text-3);padding:24px;font-size:12px">Waiting for Flink alerts…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- TAB: Spark Batch                                               -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-spark">
+
+  <div class="kpi-strip cols-5">
+    <div class="kpi">
+      <div class="kpi-label">Total Transactions</div>
+      <div class="kpi-value spark" id="sp-total">0</div>
+      <div class="kpi-sub">batch processed</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Customer Nodes</div>
+      <div class="kpi-value" id="sp-customers">0</div>
+      <div class="kpi-sub">feature vectors</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Merchant Nodes</div>
+      <div class="kpi-value" id="sp-merchants">0</div>
+      <div class="kpi-sub">feature vectors</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Edge Count</div>
+      <div class="kpi-value accent" id="sp-edges">0</div>
+      <div class="kpi-sub">graph relationships</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Fraud Rate</div>
+      <div class="kpi-value red" id="sp-fraud-rate">0%</div>
+      <div class="kpi-sub">detected in batch</div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- Transaction Type Distribution -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Transaction Type Distribution</span>
+        <span class="card-badge spark">Spark</span>
+      </div>
+      <div class="card-body">
+        <div class="mini-bars" id="sp-type-bars">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Edge Type Distribution -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Graph Edge Type Distribution</span>
+        <span class="card-badge spark">Spark</span>
+      </div>
+      <div class="card-body">
+        <div class="mini-bars" id="sp-edge-bars">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fraud by Step chart -->
+  <div class="card" style="margin-bottom:28px">
+    <div class="card-header">
+      <span class="card-title">Fraud Rate by Time Step</span>
+      <span class="card-badge spark">Spark</span>
+    </div>
+    <div class="card-body">
+      <div class="chart-container" style="height:260px"><canvas id="chart-fraud-step"></canvas></div>
+    </div>
+    <div class="chart-legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--risk-h)"></div>Fraud Count</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--spark)"></div>Fraud Rate (%)</div>
+    </div>
+  </div>
+
+  <!-- Top Fraud Accounts -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Top Suspicious Customers (Spark Features)</span>
+      <span class="card-badge spark">Spark</span>
+    </div>
+    <div class="card-body">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>Customer ID</th><th>Total Sent</th><th>Total Received</th>
+            <th>Outgoing Tx</th><th>Transfer Ratio</th><th>CashOut Ratio</th><th>Fraud</th>
+          </tr></thead>
+          <tbody id="sp-top-accounts"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- TAB: Flink Stream                                              -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-flink">
+
+  <div class="kpi-strip cols-6">
+    <div class="kpi">
+      <div class="kpi-label">Events Processed</div>
+      <div class="kpi-value flink" id="fl-total">0</div>
+      <div class="kpi-sub">stream total</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Critical</div>
+      <div class="kpi-value red" id="fl-critical">0</div>
+      <div class="kpi-sub">score ≥ 0.7</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">High</div>
+      <div class="kpi-value red" id="fl-high">0</div>
+      <div class="kpi-sub">score ≥ 0.5</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Medium</div>
+      <div class="kpi-value amber" id="fl-medium">0</div>
+      <div class="kpi-sub">score ≥ 0.3</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Low</div>
+      <div class="kpi-value green" id="fl-low">0</div>
+      <div class="kpi-sub">score &lt; 0.3</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Events/sec</div>
+      <div class="kpi-value accent" id="fl-eps">0</div>
+      <div class="kpi-sub">throughput</div>
+    </div>
+  </div>
+
+  <!-- Live Flink Stream -->
+  <div class="live-header">
+    <div class="live-status">
+      <div class="dot" style="width:8px;height:8px;border-radius:50%;background:var(--flink);animation:pulse 2s infinite"></div>
+      <div class="live-label">Flink Enriched Transaction Stream</div>
+    </div>
+    <div class="countdown-wrap">
+      <span>Refresh in</span>
+      <div class="countdown-bar-track"><div class="countdown-bar" id="cntBar-flink" style="width:100%"></div></div>
+      <span id="cntNum-flink" class="mono">10</span>s
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:28px">
+    <div class="card-body" style="padding:0">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>Risk</th><th>Type</th><th>Sender</th><th>Receiver</th>
+            <th>Amount</th><th>Velocity</th><th>Surge</th><th>Signals</th>
+          </tr></thead>
+          <tbody id="fl-live-body">
+            <tr><td colspan="8" style="text-align:center;color:var(--text-3);padding:32px">Waiting for Flink events…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rule Engine Stats -->
+  <div class="grid-3">
+    <div class="card">
+      <div class="card-header"><span class="card-title">High Amount</span></div>
+      <div class="card-body" style="text-align:center">
+        <div style="font-size:36px;font-weight:800;color:var(--risk-h)" id="fl-rule-amount">0</div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:4px">Triggered (> ¥200,000)</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="card-title">High Velocity</span></div>
+      <div class="card-body" style="text-align:center">
+        <div style="font-size:36px;font-weight:800;color:var(--risk-m)" id="fl-rule-velocity">0</div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:4px">Triggered (> 5 tx / 10min)</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span class="card-title">Balance Drain</span></div>
+      <div class="card-body" style="text-align:center">
+        <div style="font-size:36px;font-weight:800;color:var(--risk-h)" id="fl-rule-drain">0</div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:4px">Triggered (> 90% drained)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- TAB: Alerts                                                    -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="tab-panel" id="panel-alerts">
+
+  <div class="kpi-strip cols-4">
+    <div class="kpi">
+      <div class="kpi-label">Total Alerts</div>
+      <div class="kpi-value red" id="al-total">0</div>
+      <div class="kpi-sub">CRITICAL + HIGH</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Critical</div>
+      <div class="kpi-value red" id="al-critical">0</div>
+      <div class="kpi-sub">immediate action</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">High</div>
+      <div class="kpi-value amber" id="al-high">0</div>
+      <div class="kpi-sub">investigation needed</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Top Signal</div>
+      <div class="kpi-value accent" id="al-top-signal" style="font-size:16px">—</div>
+      <div class="kpi-sub">most triggered rule</div>
+    </div>
+  </div>
+
+  <!-- Alert Table -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Alert Feed — Flink Rule Engine Output</span>
+      <span class="card-badge flink">Real-Time</span>
+    </div>
+    <div class="card-body" style="padding:0">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>Time</th><th>Risk</th><th>Sender</th><th>Receiver</th>
+            <th>Amount</th><th>Type</th><th>Risk Score</th><th>Signals</th>
+          </tr></thead>
+          <tbody id="al-body">
+            <tr><td colspan="8" style="text-align:center;color:var(--text-3);padding:32px">No alerts yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<footer>
+  <span>Fraud Detection System · Apache Spark 3.5 + Apache Flink 1.20 · PaySim Dataset</span>
+  <span id="footerTime">—</span>
+</footer>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- JavaScript                                                     -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<script>
+// ── State ────────────────────────────────────────────────────────
+const state = {
+  spark: {
+    total: 0, customers: 0, merchants: 0, edges: 0, fraudRate: 0,
+    typeDistribution: {}, edgeDistribution: {},
+    fraudByStep: [], topAccounts: [],
+  },
+  flink: {
+    total: 0, critical: 0, high: 0, medium: 0, low: 0,
+    eps: 0, transactions: [], alerts: [],
+    ruleStats: { HIGH_AMOUNT: 0, HIGH_VELOCITY: 0, BALANCE_DRAIN: 0, AMOUNT_SURGE: 0, SUSPICIOUS_TYPE_LARGE: 0 },
+  },
+  throughputHistory: [],
+  maxHistory: 30,
+};
+
+// ── API endpoints ────────────────────────────────────────────────
+const IS_LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+const SPARK_API = IS_LOCAL ? 'http://localhost:8092' : '/spark-api';
+const FLINK_API = IS_LOCAL ? 'http://localhost:8093' : '/flink-api';
+
+// ── Tab switching ────────────────────────────────────────────────
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => {
+    t.classList.remove('active','spark-active','flink-active');
+  });
+  document.getElementById('panel-' + name).classList.add('active');
+  if (name === 'spark')     el.classList.add('spark-active','active');
+  else if (name === 'flink' || name === 'alerts') el.classList.add('flink-active','active');
+  else el.classList.add('spark-active','active');
+}
+
+// ── Number formatting ────────────────────────────────────────────
+function fmt(n) { return n == null ? '—' : Number(n).toLocaleString('en'); }
+function fmtAmt(n) { return '¥ ' + Number(n).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmtPct(n) { return (n * 100).toFixed(2) + '%'; }
+function probColor(p) { return p >= 0.7 ? 'var(--risk-h)' : p >= 0.5 ? 'var(--risk-m)' : p >= 0.3 ? '#3B82F6' : 'var(--risk-l)'; }
+
+// ── Canvas drawing helpers ───────────────────────────────────────
+
+function drawThroughputChart() {
+  const canvas = document.getElementById('chart-throughput');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * 2;
+  canvas.height = rect.height * 2;
+  ctx.scale(2, 2);
+  const W = rect.width, H = rect.height;
+  const pad = { t: 20, r: 16, b: 30, l: 56 };
+  const cW = W - pad.l - pad.r, cH = H - pad.t - pad.b;
+
+  ctx.clearRect(0, 0, W, H);
+
+  const data = state.throughputHistory;
+  if (data.length < 2) {
+    ctx.fillStyle = 'rgba(139,144,160,.4)';
+    ctx.font = '12px Inter';
+    ctx.textAlign = 'center';
+    ctx.fillText('Collecting data…', W / 2, H / 2);
+    return;
+  }
+
+  const sparkVals = data.map(d => d.spark || 0);
+  const flinkVals = data.map(d => d.flink || 0);
+  const maxVal = Math.max(...sparkVals, ...flinkVals, 1);
+  const step = cW / (data.length - 1);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(42,46,59,.6)';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + (cH / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(139,144,160,.5)';
+    ctx.font = '10px JetBrains Mono';
+    ctx.textAlign = 'right';
+    ctx.fillText(fmt(Math.round(maxVal * (1 - i / 4))), pad.l - 8, y + 3);
+  }
+
+  function drawLine(vals, color) {
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    for (let i = 0; i < vals.length; i++) {
+      const x = pad.l + step * i;
+      const y = pad.t + cH - (vals[i] / maxVal) * cH;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Gradient fill
+    ctx.lineTo(pad.l + step * (vals.length - 1), pad.t + cH);
+    ctx.lineTo(pad.l, pad.t + cH);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + cH);
+    const c = color.replace(')', ',.15)').replace('rgb', 'rgba').replace('var(--spark)', 'rgba(232,131,58,.12)').replace('var(--flink)', 'rgba(40,181,225,.12)');
+    grad.addColorStop(0, color === '#E8833A' ? 'rgba(232,131,58,.15)' : 'rgba(40,181,225,.15)');
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.fill();
+  }
+
+  drawLine(sparkVals, '#E8833A');
+  drawLine(flinkVals, '#28B5E1');
+
+  // X labels
+  ctx.fillStyle = 'rgba(139,144,160,.5)';
+  ctx.font = '10px JetBrains Mono';
+  ctx.textAlign = 'center';
+  const labelStep = Math.max(1, Math.floor(data.length / 6));
+  for (let i = 0; i < data.length; i += labelStep) {
+    ctx.fillText(data[i].label || '', pad.l + step * i, H - 8);
+  }
+}
+
+function drawDonut() {
+  const canvas = document.getElementById('chart-donut');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const size = 160;
+  canvas.width = size * 2; canvas.height = size * 2;
+  ctx.scale(2, 2);
+  const cx = size / 2, cy = size / 2, r = 56, lineW = 14;
+
+  const counts = [state.flink.critical, state.flink.high, state.flink.medium, state.flink.low];
+  const colors = ['#EF4444', '#F59E0B', '#3B82F6', '#22C55E'];
+  const total = counts.reduce((a, b) => a + b, 0) || 1;
+
+  ctx.clearRect(0, 0, size, size);
+
+  // Background ring
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(42,46,59,.5)';
+  ctx.lineWidth = lineW;
+  ctx.stroke();
+
+  // Segments
+  let startAngle = -Math.PI / 2;
+  counts.forEach((c, i) => {
+    if (c === 0) return;
+    const sweep = (c / total) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, startAngle, startAngle + sweep);
+    ctx.strokeStyle = colors[i];
+    ctx.lineWidth = lineW;
+    ctx.lineCap = 'butt';
+    ctx.stroke();
+    startAngle += sweep;
+  });
+
+  // Center text
+  ctx.fillStyle = 'var(--text-1)';
+  ctx.font = 'bold 22px Inter';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(fmt(total), cx, cy - 6);
+  ctx.font = '10px Inter';
+  ctx.fillStyle = 'rgba(139,144,160,.7)';
+  ctx.fillText('total events', cx, cy + 12);
+
+  // Update legend
+  document.getElementById('dl-critical').textContent = fmt(state.flink.critical);
+  document.getElementById('dl-high').textContent = fmt(state.flink.high);
+  document.getElementById('dl-medium').textContent = fmt(state.flink.medium);
+  document.getElementById('dl-low').textContent = fmt(state.flink.low);
+}
+
+function drawFraudByStep() {
+  const canvas = document.getElementById('chart-fraud-step');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * 2;
+  canvas.height = rect.height * 2;
+  ctx.scale(2, 2);
+  const W = rect.width, H = rect.height;
+  const pad = { t: 20, r: 50, b: 30, l: 56 };
+  const cW = W - pad.l - pad.r, cH = H - pad.t - pad.b;
+
+  ctx.clearRect(0, 0, W, H);
+
+  const data = state.spark.fraudByStep;
+  if (data.length === 0) {
+    ctx.fillStyle = 'rgba(139,144,160,.4)'; ctx.font = '12px Inter'; ctx.textAlign = 'center';
+    ctx.fillText('No Spark data yet', W / 2, H / 2);
+    return;
+  }
+
+  const maxCount = Math.max(...data.map(d => d.fraud_count), 1);
+  const maxRate = Math.max(...data.map(d => d.fraud_rate), 0.01);
+  const barW = Math.max(2, cW / data.length - 1);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(42,46,59,.6)'; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + (cH / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(139,144,160,.5)'; ctx.font = '10px JetBrains Mono';
+    ctx.textAlign = 'right';
+    ctx.fillText(Math.round(maxCount * (1 - i / 4)), pad.l - 8, y + 3);
+    ctx.textAlign = 'left';
+    ctx.fillText((maxRate * (1 - i / 4) * 100).toFixed(1) + '%', W - pad.r + 6, y + 3);
+  }
+
+  // Bars (fraud count)
+  data.forEach((d, i) => {
+    const x = pad.l + (cW / data.length) * i;
+    const bH = (d.fraud_count / maxCount) * cH;
+    ctx.fillStyle = 'rgba(239,68,68,.5)';
+    ctx.fillRect(x, pad.t + cH - bH, barW, bH);
+  });
+
+  // Line (fraud rate)
+  ctx.beginPath();
+  ctx.strokeStyle = '#E8833A';
+  ctx.lineWidth = 2;
+  data.forEach((d, i) => {
+    const x = pad.l + (cW / data.length) * i + barW / 2;
+    const y = pad.t + cH - (d.fraud_rate / maxRate) * cH;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+
+// ── Render functions ─────────────────────────────────────────────
+
+function renderOverviewKPIs() {
+  document.getElementById('ov-spark-total').textContent = fmt(state.spark.total);
+  document.getElementById('ov-flink-total').textContent = fmt(state.flink.total);
+  document.getElementById('ov-critical').textContent = fmt(state.flink.critical);
+  document.getElementById('ov-high').textContent = fmt(state.flink.high);
+  document.getElementById('ov-latency').textContent = state.flink.total > 0 ? '< 50' : '—';
+  const totalDetected = state.flink.critical + state.flink.high;
+  const total = state.flink.total || 1;
+  document.getElementById('ov-rate').textContent = (totalDetected / total * 100).toFixed(2) + '%';
+}
+
+function renderSparkTab() {
+  document.getElementById('sp-total').textContent = fmt(state.spark.total);
+  document.getElementById('sp-customers').textContent = fmt(state.spark.customers);
+  document.getElementById('sp-merchants').textContent = fmt(state.spark.merchants);
+  document.getElementById('sp-edges').textContent = fmt(state.spark.edges);
+  document.getElementById('sp-fraud-rate').textContent = (state.spark.fraudRate * 100).toFixed(2) + '%';
+
+  // Type distribution bars
+  const typeEl = document.getElementById('sp-type-bars');
+  const types = state.spark.typeDistribution;
+  const maxTypeCount = Math.max(...Object.values(types), 1);
+  typeEl.innerHTML = Object.entries(types).sort((a,b) => b[1] - a[1]).map(([k, v]) => {
+    const pct = (v / maxTypeCount * 100).toFixed(1);
+    const isFraudType = k === 'TRANSFER' || k === 'CASH_OUT';
+    const color = isFraudType ? 'var(--spark)' : 'var(--accent)';
+    return `<div class="mini-bar-row">
+      <div class="mini-bar-label">${k}</div>
+      <div class="mini-bar-track"><div class="mini-bar-fill" style="width:${pct}%;background:${color}">${pct > 20 ? fmt(v) : ''}</div></div>
+      <div class="mini-bar-value">${fmt(v)}</div>
+    </div>`;
+  }).join('');
+
+  // Edge distribution bars
+  const edgeEl = document.getElementById('sp-edge-bars');
+  const edges = state.spark.edgeDistribution;
+  const maxEdgeCount = Math.max(...Object.values(edges), 1);
+  const edgeColors = { transfer: 'var(--spark)', cashout: 'var(--risk-h)', payment: 'var(--accent)' };
+  edgeEl.innerHTML = Object.entries(edges).sort((a,b) => b[1] - a[1]).map(([k, v]) => {
+    const pct = (v / maxEdgeCount * 100).toFixed(1);
+    return `<div class="mini-bar-row">
+      <div class="mini-bar-label">${k}</div>
+      <div class="mini-bar-track"><div class="mini-bar-fill" style="width:${pct}%;background:${edgeColors[k] || 'var(--accent)'}">${pct > 20 ? fmt(v) : ''}</div></div>
+      <div class="mini-bar-value">${fmt(v)}</div>
+    </div>`;
+  }).join('');
+
+  // Top accounts
+  const tbody = document.getElementById('sp-top-accounts');
+  tbody.innerHTML = state.spark.topAccounts.map(a => `<tr>
+    <td class="mono">${a.customer_id}</td>
+    <td class="mono">${fmtAmt(a.total_sent)}</td>
+    <td class="mono">${fmtAmt(a.total_received)}</td>
+    <td class="mono">${a.num_outgoing}</td>
+    <td class="mono">${(a.transfer_ratio * 100).toFixed(1)}%</td>
+    <td class="mono">${(a.cashout_ratio * 100).toFixed(1)}%</td>
+    <td><span class="rbadge ${a.is_fraud ? 'HIGH' : 'LOW'}">${a.is_fraud ? 'FRAUD' : 'NORMAL'}</span></td>
+  </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text-3);padding:24px">No data</td></tr>';
+
+  drawFraudByStep();
+}
+
+function renderFlinkTab() {
+  document.getElementById('fl-total').textContent = fmt(state.flink.total);
+  document.getElementById('fl-critical').textContent = fmt(state.flink.critical);
+  document.getElementById('fl-high').textContent = fmt(state.flink.high);
+  document.getElementById('fl-medium').textContent = fmt(state.flink.medium);
+  document.getElementById('fl-low').textContent = fmt(state.flink.low);
+  document.getElementById('fl-eps').textContent = fmt(state.flink.eps);
+
+  // Rule stats
+  document.getElementById('fl-rule-amount').textContent = fmt(state.flink.ruleStats.HIGH_AMOUNT);
+  document.getElementById('fl-rule-velocity').textContent = fmt(state.flink.ruleStats.HIGH_VELOCITY);
+  document.getElementById('fl-rule-drain').textContent = fmt(state.flink.ruleStats.BALANCE_DRAIN);
+
+  // Live table
+  const tbody = document.getElementById('fl-live-body');
+  const txs = state.flink.transactions.slice(-50).reverse();
+  if (txs.length === 0) return;
+  tbody.innerHTML = txs.map((tx, i) => {
+    const risk = tx.rt_risk_level || 'LOW';
+    const signals = (tx.rt_risk_signals || []);
+    return `<tr class="${i < 5 ? 'row-new' : ''}">
+      <td><span class="rbadge ${risk}">${risk}</span></td>
+      <td><span class="type-pill">${tx.type || '—'}</span></td>
+      <td class="mono">${(tx.nameOrig || '').slice(0, 12)}</td>
+      <td class="mono">${(tx.nameDest || '').slice(0, 12)}</td>
+      <td class="mono" style="font-weight:600">${fmtAmt(tx.amount)}</td>
+      <td class="mono">${tx.rt_velocity || 0}</td>
+      <td class="mono" style="color:${tx.rt_surge_ratio > 3 ? 'var(--risk-h)' : 'var(--text-2)'}">${(tx.rt_surge_ratio || 1).toFixed(1)}x</td>
+      <td><div class="signal-tags">${signals.map(s => `<span class="signal-tag${s === 'HIGH_VELOCITY' || s === 'AMOUNT_SURGE' ? ' warn' : ''}">${s}</span>`).join('')}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderAlerts() {
+  const alerts = state.flink.alerts.slice(-100).reverse();
+  document.getElementById('al-total').textContent = fmt(alerts.length);
+
+  const critical = alerts.filter(a => a.rt_risk_level === 'CRITICAL').length;
+  const high = alerts.filter(a => a.rt_risk_level === 'HIGH').length;
+  document.getElementById('al-critical').textContent = fmt(critical);
+  document.getElementById('al-high').textContent = fmt(high);
+
+  // Top signal
+  const signalCounts = {};
+  alerts.forEach(a => (a.rt_risk_signals || []).forEach(s => signalCounts[s] = (signalCounts[s] || 0) + 1));
+  const topSignal = Object.entries(signalCounts).sort((a, b) => b[1] - a[1])[0];
+  document.getElementById('al-top-signal').textContent = topSignal ? topSignal[0] : '—';
+
+  const tbody = document.getElementById('al-body');
+  if (alerts.length === 0) return;
+  tbody.innerHTML = alerts.slice(0, 50).map((tx, i) => {
+    const risk = tx.rt_risk_level || 'HIGH';
+    const signals = tx.rt_risk_signals || [];
+    return `<tr class="${i < 3 ? 'row-new' : ''}">
+      <td class="mono" style="font-size:10px">${tx.step ? 'Step ' + tx.step : '—'}</td>
+      <td><span class="rbadge ${risk}">${risk}</span></td>
+      <td class="mono">${(tx.nameOrig || '').slice(0, 12)}</td>
+      <td class="mono">${(tx.nameDest || '').slice(0, 12)}</td>
+      <td class="mono" style="font-weight:600">${fmtAmt(tx.amount)}</td>
+      <td><span class="type-pill">${tx.type || '—'}</span></td>
+      <td class="mono" style="color:${probColor(tx.rt_risk_score)}">${(tx.rt_risk_score || 0).toFixed(3)}</td>
+      <td><div class="signal-tags">${signals.map(s => `<span class="signal-tag">${s}</span>`).join('')}</div></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderTimeline() {
+  const el = document.getElementById('ov-timeline');
+  const alerts = state.flink.alerts.slice(-15).reverse();
+  if (alerts.length === 0) return;
+  el.innerHTML = alerts.map(a => {
+    const risk = a.rt_risk_level || 'HIGH';
+    const color = risk === 'CRITICAL' ? 'var(--risk-h)' : risk === 'HIGH' ? 'var(--risk-m)' : 'var(--accent)';
+    const signals = (a.rt_risk_signals || []).join(', ');
+    return `<div class="tl-item">
+      <div class="tl-time">Step ${a.step || '?'}</div>
+      <div class="tl-dot" style="background:${color}"></div>
+      <div class="tl-content">
+        <div class="tl-title" style="color:${color}">${risk} — ${(a.nameOrig || '').slice(0, 10)} → ${(a.nameDest || '').slice(0, 10)}</div>
+        <div class="tl-desc">${a.type || ''} · ${fmtAmt(a.amount)} · Signals: ${signals || 'none'}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Simulated data (when APIs are unavailable) ───────────────────
+
+function generateMockSparkData() {
+  const types = ['PAYMENT', 'TRANSFER', 'CASH_OUT', 'CASH_IN', 'DEBIT'];
+  const typeCounts = { PAYMENT: 2151495, TRANSFER: 532909, CASH_OUT: 2237500, CASH_IN: 1399284, DEBIT: 41432 };
+  const edgeCounts = { transfer: 532909, cashout: 2237500, payment: 2151495 };
+
+  state.spark.total = 6362620;
+  state.spark.customers = 80486;
+  state.spark.merchants = 3541;
+  state.spark.edges = 4921904;
+  state.spark.fraudRate = 0.0213;
+  state.spark.typeDistribution = typeCounts;
+  state.spark.edgeDistribution = edgeCounts;
+
+  // Fraud by step (sampled)
+  const steps = [];
+  for (let s = 0; s < 744; s += 10) {
+    const txCount = 5000 + Math.random() * 10000;
+    const fraudCount = Math.floor(txCount * (0.01 + Math.random() * 0.04));
+    steps.push({ step: s, tx_count: Math.floor(txCount), fraud_count: fraudCount, fraud_rate: fraudCount / txCount });
+  }
+  state.spark.fraudByStep = steps;
+
+  // Top suspicious accounts
+  state.spark.topAccounts = [
+    { customer_id: 'C1231006815', total_sent: 10000000, total_received: 0, num_outgoing: 1, transfer_ratio: 1.0, cashout_ratio: 0, is_fraud: 1 },
+    { customer_id: 'C1025872684', total_sent: 5328891.23, total_received: 103482, num_outgoing: 3, transfer_ratio: 0.67, cashout_ratio: 0.33, is_fraud: 1 },
+    { customer_id: 'C985934102',  total_sent: 4100000, total_received: 0, num_outgoing: 2, transfer_ratio: 0.5, cashout_ratio: 0.5, is_fraud: 1 },
+    { customer_id: 'C840083671',  total_sent: 3520490, total_received: 250000, num_outgoing: 5, transfer_ratio: 0.8, cashout_ratio: 0.2, is_fraud: 1 },
+    { customer_id: 'C1722368381', total_sent: 2890000, total_received: 0, num_outgoing: 1, transfer_ratio: 1.0, cashout_ratio: 0, is_fraud: 1 },
+    { customer_id: 'C466592123',  total_sent: 45200, total_received: 128000, num_outgoing: 12, transfer_ratio: 0.25, cashout_ratio: 0.08, is_fraud: 0 },
+    { customer_id: 'C105398251',  total_sent: 23100, total_received: 89400, num_outgoing: 8, transfer_ratio: 0.13, cashout_ratio: 0.0, is_fraud: 0 },
+  ];
+}
+
+function generateMockFlinkEvent() {
+  const types = ['TRANSFER', 'CASH_OUT', 'PAYMENT', 'CASH_IN'];
+  const rng = Math.random;
+  const isFraud = rng() < 0.08;
+  const type = isFraud ? (rng() < 0.5 ? 'TRANSFER' : 'CASH_OUT') : types[Math.floor(rng() * types.length)];
+  const amount = isFraud ? 50000 + rng() * 400000 : 100 + rng() * 12000;
+  const oldBal = amount + rng() * 50000;
+  const newBal = isFraud ? 0 : oldBal - amount;
+
+  const signals = [];
+  let score = 0;
+  if (amount > 200000)   { signals.push('HIGH_AMOUNT'); score += 0.3; }
+  if (isFraud && rng() < 0.4) { signals.push('HIGH_VELOCITY'); score += 0.3; }
+  if (isFraud && rng() < 0.5) { signals.push('AMOUNT_SURGE'); score += 0.2; }
+  if (newBal === 0 && oldBal > 0) { signals.push('BALANCE_DRAIN'); score += 0.3; }
+  if (['TRANSFER','CASH_OUT'].includes(type) && amount > 50000) { signals.push('SUSPICIOUS_TYPE_LARGE'); score += 0.1; }
+  score = Math.min(score, 1.0);
+
+  const riskLevel = score >= 0.7 ? 'CRITICAL' : score >= 0.5 ? 'HIGH' : score >= 0.3 ? 'MEDIUM' : 'LOW';
+
+  return {
+    step: 100 + Math.floor(rng() * 644),
+    type, amount: Math.round(amount * 100) / 100,
+    nameOrig: 'C' + Math.floor(100000000 + rng() * 900000000),
+    nameDest: (type === 'PAYMENT' ? 'M' : 'C') + Math.floor(100000000 + rng() * 900000000),
+    oldbalanceOrg: Math.round(oldBal * 100) / 100,
+    newbalanceOrig: Math.round(newBal * 100) / 100,
+    rt_tx_count: Math.floor(1 + rng() * 20),
+    rt_avg_amount: Math.round((2000 + rng() * 8000) * 100) / 100,
+    rt_velocity: isFraud ? Math.floor(3 + rng() * 8) : Math.floor(1 + rng() * 3),
+    rt_surge_ratio: isFraud ? 2 + rng() * 5 : 0.5 + rng() * 1.5,
+    rt_balance_drain: newBal === 0 ? 1.0 : Math.round((1 - newBal / oldBal) * 10000) / 10000,
+    rt_risk_score: Math.round(score * 1000) / 1000,
+    rt_risk_signals: signals,
+    rt_risk_level: riskLevel,
+  };
+}
+
+function ingestMockFlinkBatch(count = 20) {
+  for (let i = 0; i < count; i++) {
+    const tx = generateMockFlinkEvent();
+    state.flink.transactions.push(tx);
+    state.flink.total++;
+
+    if (tx.rt_risk_level === 'CRITICAL') { state.flink.critical++; state.flink.alerts.push(tx); }
+    else if (tx.rt_risk_level === 'HIGH') { state.flink.high++; state.flink.alerts.push(tx); }
+    else if (tx.rt_risk_level === 'MEDIUM') state.flink.medium++;
+    else state.flink.low++;
+
+    (tx.rt_risk_signals || []).forEach(s => {
+      if (state.flink.ruleStats[s] != null) state.flink.ruleStats[s]++;
+    });
+  }
+  state.flink.eps = count;
+
+  // Keep transactions buffer manageable
+  if (state.flink.transactions.length > 500) {
+    state.flink.transactions = state.flink.transactions.slice(-300);
+  }
+  if (state.flink.alerts.length > 200) {
+    state.flink.alerts = state.flink.alerts.slice(-150);
+  }
+}
+
+// ── API fetch with fallback ──────────────────────────────────────
+
+async function fetchSparkData() {
+  try {
+    const res = await fetch(SPARK_API + '/stats', { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    Object.assign(state.spark, data);
+  } catch {
+    if (state.spark.total === 0) generateMockSparkData();
+  }
+}
+
+async function fetchFlinkData() {
+  try {
+    const res = await fetch(FLINK_API + '/stream', { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    // Merge live data
+    if (data.transactions) {
+      data.transactions.forEach(tx => {
+        state.flink.transactions.push(tx);
+        state.flink.total++;
+        const lvl = tx.rt_risk_level;
+        if (lvl === 'CRITICAL') { state.flink.critical++; state.flink.alerts.push(tx); }
+        else if (lvl === 'HIGH') { state.flink.high++; state.flink.alerts.push(tx); }
+        else if (lvl === 'MEDIUM') state.flink.medium++;
+        else state.flink.low++;
+        (tx.rt_risk_signals || []).forEach(s => {
+          if (state.flink.ruleStats[s] != null) state.flink.ruleStats[s]++;
+        });
+      });
+      state.flink.eps = data.transactions.length;
+    }
+  } catch {
+    ingestMockFlinkBatch(15 + Math.floor(Math.random() * 10));
+  }
+}
+
+// ── Main loop ────────────────────────────────────────────────────
+
+const FLINK_INTERVAL = 10; // seconds
+let flinkCountdown = FLINK_INTERVAL;
+
+function updateThroughputHistory() {
+  const now = new Date();
+  const label = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  state.throughputHistory.push({
+    label,
+    spark: state.spark.total > 0 ? Math.floor(state.spark.total / Math.max(state.throughputHistory.length + 1, 1)) : 0,
+    flink: state.flink.eps || 0,
+  });
+  if (state.throughputHistory.length > state.maxHistory) {
+    state.throughputHistory.shift();
+  }
+}
+
+function renderAll() {
+  renderOverviewKPIs();
+  renderSparkTab();
+  renderFlinkTab();
+  renderAlerts();
+  renderTimeline();
+  drawThroughputChart();
+  drawDonut();
+}
+
+async function boot() {
+  const now = new Date();
+  document.getElementById('tsDisplay').textContent =
+    now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) +
+    ' · ' + now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  document.getElementById('footerTime').textContent =
+    'Dashboard loaded at ' + now.toISOString().slice(0, 19).replace('T', ' ');
+
+  // Initial data
+  await fetchSparkData();
+  await fetchFlinkData();
+  updateThroughputHistory();
+  renderAll();
+
+  // Flink stream polling
+  setInterval(async () => {
+    flinkCountdown--;
+    document.getElementById('cntNum-flink').textContent = flinkCountdown;
+    document.getElementById('cntBar-flink').style.width = (flinkCountdown / FLINK_INTERVAL * 100) + '%';
+
+    if (flinkCountdown <= 0) {
+      flinkCountdown = FLINK_INTERVAL;
+      await fetchFlinkData();
+      updateThroughputHistory();
+      renderAll();
+    }
+  }, 1000);
+
+  // Redraw charts on resize
+  window.addEventListener('resize', () => {
+    drawThroughputChart();
+    drawFraudByStep();
+  });
+}
+
+boot();
+</script>
+</body>
+</html>

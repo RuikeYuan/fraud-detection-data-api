@@ -54,6 +54,11 @@ DATA_API_URL      = os.getenv("DATA_API_URL", "http://localhost:8000")
 BATCH_SERVER_URL  = os.getenv("BATCH_SERVER_URL", "http://localhost:8091")
 BATCH_SIZE        = 100
 
+# Power BI Embedded（可选，若设置则前端 iframe 嵌入已发布报表）
+POWERBI_EMBED_URL   = os.getenv("POWERBI_EMBED_URL", "")
+POWERBI_REPORT_ID   = os.getenv("POWERBI_REPORT_ID", "")
+POWERBI_ACCESS_TOKEN = os.getenv("POWERBI_ACCESS_TOKEN", "")
+
 client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 app    = FastAPI()
 
@@ -428,6 +433,149 @@ async def index():
     """
     p = Path(__file__).parent / "index.html"
     return p.read_text(encoding="utf-8")
+
+
+# ── GET /live：Live Feed Dashboard ────────────────────────────────
+@app.get("/live", response_class=HTMLResponse)
+async def live_feed():
+    """返回实时交易监控 Dashboard。"""
+    p = Path(__file__).parent / "dashboard.html"
+    return p.read_text(encoding="utf-8")
+
+
+# ── GET /spark-flink：Spark + Flink 实时 Dashboard ────────────────
+@app.get("/spark-flink", response_class=HTMLResponse)
+async def spark_flink_dashboard():
+    """返回 Spark + Flink 实时处理 Dashboard。"""
+    p = Path(__file__).parent / "spark_flink_dashboard.html"
+    return p.read_text(encoding="utf-8")
+
+
+# ── GET /patterns：Graph Patterns 可视化 ──────────────────────────
+@app.get("/patterns", response_class=HTMLResponse)
+async def graph_patterns():
+    """返回欺诈图模式分析页面。"""
+    p = Path(__file__).parent / "fraud_patterns.html"
+    if not p.exists():
+        p = Path(__file__).parent.parent / "fraud_patterns.html"
+    return p.read_text(encoding="utf-8")
+
+
+# ── GET /slides：演示幻灯片 ───────────────────────────────────────
+@app.get("/slides", response_class=HTMLResponse)
+async def slides():
+    """返回项目演示幻灯片。"""
+    p = Path(__file__).parent / "slides.html"
+    return p.read_text(encoding="utf-8")
+
+
+# ── GET /powerbi：Power BI Analytics Dashboard ────────────────────
+@app.get("/powerbi", response_class=HTMLResponse)
+async def powerbi_page():
+    """返回 Power BI 集成分析页面。"""
+    p = Path(__file__).parent / "powerbi.html"
+    return p.read_text(encoding="utf-8")
+
+
+# ── Power BI REST Data Endpoints ──────────────────────────────────
+def _get_all_transactions() -> list[dict]:
+    """获取所有交易数据（实时 or mock）。"""
+    if _transactions:
+        return _transactions
+    return MOCK_TRANSACTIONS
+
+
+@app.get("/api/powerbi/transactions")
+async def pbi_transactions():
+    """返回扁平化交易表，供 Power BI Web connector 消费。"""
+    txs = _get_all_transactions()
+    return JSONResponse([{
+        "tx_id": t.get("tx_id", ""),
+        "timestamp": t.get("ts", ""),
+        "step": t.get("step", 0),
+        "source": t.get("src", ""),
+        "destination": t.get("dst", ""),
+        "amount": t.get("amount", 0),
+        "type": t.get("type", ""),
+        "src_fraud_prob": t.get("src_fraud_prob", 0),
+        "dst_fraud_prob": t.get("dst_fraud_prob", 0),
+        "risk_level": t.get("risk_level", "LOW"),
+        "is_fraud_predicted": t.get("is_fraud_predicted", False),
+        "label": t.get("label", 0),
+    } for t in txs])
+
+
+@app.get("/api/powerbi/summary")
+async def pbi_summary():
+    """按交易类型和风险等级聚合统计。"""
+    txs = _get_all_transactions()
+    agg: dict[str, dict] = {}
+    for t in txs:
+        key = f"{t.get('type','?')}|{t.get('risk_level','?')}"
+        if key not in agg:
+            agg[key] = {"type": t.get("type",""), "risk_level": t.get("risk_level",""), "count": 0, "total_amount": 0.0}
+        agg[key]["count"] += 1
+        agg[key]["total_amount"] += t.get("amount", 0)
+    return JSONResponse(list(agg.values()))
+
+
+@app.get("/api/powerbi/timeseries")
+async def pbi_timeseries():
+    """按 step 聚合的时间序列数据。"""
+    txs = _get_all_transactions()
+    steps: dict[int, dict] = {}
+    for t in txs:
+        s = t.get("step", 0)
+        if s not in steps:
+            steps[s] = {"step": s, "count": 0, "fraud_count": 0, "total_amount": 0.0}
+        steps[s]["count"] += 1
+        if t.get("is_fraud_predicted"):
+            steps[s]["fraud_count"] += 1
+        steps[s]["total_amount"] += t.get("amount", 0)
+    result = sorted(steps.values(), key=lambda x: x["step"])
+    for r in result:
+        r["avg_amount"] = round(r["total_amount"] / max(r["count"], 1), 2)
+    return JSONResponse(result)
+
+
+@app.get("/api/powerbi/fraud_nodes")
+async def pbi_fraud_nodes():
+    """高风险账户列表（GNN 评分排序）。"""
+    txs = _get_all_transactions()
+    accounts: dict[str, dict] = {}
+    for t in txs:
+        src = t.get("src", "")
+        sp = t.get("src_fraud_prob", 0)
+        if src not in accounts:
+            accounts[src] = {"account": src, "probs": [], "tx_count": 0, "total_amount": 0.0, "fraud_count": 0}
+        accounts[src]["probs"].append(sp)
+        accounts[src]["tx_count"] += 1
+        accounts[src]["total_amount"] += t.get("amount", 0)
+        if t.get("is_fraud_predicted"):
+            accounts[src]["fraud_count"] += 1
+    result = []
+    for a in accounts.values():
+        avg = sum(a["probs"]) / len(a["probs"]) if a["probs"] else 0
+        result.append({
+            "account": a["account"],
+            "avg_fraud_prob": round(avg, 4),
+            "max_fraud_prob": round(max(a["probs"]) if a["probs"] else 0, 4),
+            "tx_count": a["tx_count"],
+            "fraud_count": a["fraud_count"],
+            "total_amount": round(a["total_amount"], 2),
+        })
+    return JSONResponse(sorted(result, key=lambda x: -x["avg_fraud_prob"])[:50])
+
+
+@app.get("/api/powerbi/embed_config")
+async def pbi_embed_config():
+    """返回 Power BI Embedded 配置（若已设置环境变量）。"""
+    if POWERBI_EMBED_URL:
+        return JSONResponse({
+            "embed_url": POWERBI_EMBED_URL,
+            "report_id": POWERBI_REPORT_ID,
+        })
+    return JSONResponse({"embed_url": "", "report_id": ""})
 
 
 # ── GET /investigation_reports.json：返回 Claude Agent 调查报告 ────

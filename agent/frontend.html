@@ -193,11 +193,32 @@
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #2a2d3e; border-radius: 3px; }
+
+  /* ── Global Nav ── */
+  .gnav{position:fixed;top:0;left:0;right:0;height:42px;display:flex;align-items:center;gap:6px;padding:0 16px;background:rgba(15,17,23,.92);backdrop-filter:blur(8px);border-bottom:1px solid #1e2030;z-index:9999;font:500 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  .gnav-brand{color:#818cf8;text-decoration:none;font-weight:700;margin-right:8px;display:flex;align-items:center;gap:5px}
+  .gnav a{color:#94a3b8;text-decoration:none;padding:4px 10px;border-radius:6px;transition:.15s}
+  .gnav a:hover{color:#e2e8f0;background:rgba(255,255,255,.06)}
+  .gnav a.active{color:#a5b4fc;background:rgba(99,102,241,.15)}
+  .gnav-spacer{flex:1}
+  .gnav-tag{font-size:11px;color:#475569;letter-spacing:.5px}
 </style>
 </head>
 <body>
 
-<header>
+<nav class="gnav">
+  <a href="/" class="gnav-brand"><span>◆</span> FraudShield</a>
+  <a href="/">Dashboard</a>
+  <a href="/live">Live Feed</a>
+  <a href="/spark-flink">Spark + Flink</a>
+  <a href="/patterns">Graph Patterns</a>
+  <a href="/slides">Slides</a>
+  <a href="/powerbi">Power BI</a>
+  <span class="gnav-spacer"></span>
+  <span class="gnav-tag">AI AGENT</span>
+</nav>
+
+<header style="margin-top:42px">
   <span class="logo">🛡️</span>
   <h1>欺诈检测 AI 助手</h1>
   <span class="badge">GraphSAGE · Claude Opus 4.6</span>

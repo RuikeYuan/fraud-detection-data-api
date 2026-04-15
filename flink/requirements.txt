@@ -1,0 +1,5 @@
+apache-flink>=1.20.0
+apache-flink-libraries>=1.20.0
+fastapi
+uvicorn[standard]
+confluent-kafka>=2.3.0

@@ -2,8 +2,5 @@ apache-airflow==2.9.0
 apache-airflow-providers-postgres
 confluent-kafka>=2.3.0
 pandas
-torch
-torch-geometric
 networkx
 scikit-learn
-pickle5

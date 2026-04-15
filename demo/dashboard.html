@@ -119,9 +119,31 @@ tr.row-new td{animation:fadeIn .4s ease}
 .batch-badge{display:inline-flex;align-items:center;gap:5px;font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 8px;color:var(--text-2);font-weight:500}
 
 footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);display:flex;justify-content:space-between}
+
+/* ── Global Nav ── */
+.gnav{display:flex;align-items:center;gap:0;background:var(--surface);border-bottom:1px solid var(--border);padding:0 32px;font-size:12px;position:sticky;top:0;z-index:200;backdrop-filter:blur(12px)}
+.gnav-brand{font-weight:700;letter-spacing:-.02em;font-size:13px;color:var(--text-1);padding:10px 0;margin-right:24px;white-space:nowrap;text-decoration:none}
+.gnav-brand span{color:var(--risk-h)}
+.gnav a{color:var(--text-2);text-decoration:none;padding:10px 14px;font-weight:500;letter-spacing:.01em;transition:all .15s;border-bottom:2px solid transparent;white-space:nowrap}
+.gnav a:hover{color:var(--text-1);background:var(--bg)}
+.gnav a.active{color:var(--text-1);border-bottom-color:var(--text-1);font-weight:600}
+.gnav-spacer{flex:1}
+.gnav-tag{font-size:10px;color:var(--text-3);font-family:var(--mono);letter-spacing:.04em}
+@media(max-width:700px){.gnav{overflow-x:auto;padding:0 16px}}
 </style>
 </head>
 <body>
+<nav class="gnav">
+  <a href="/" class="gnav-brand"><span>◆</span> FraudShield</a>
+  <a href="/">Dashboard</a>
+  <a href="/live" class="active">Live Feed</a>
+  <a href="/spark-flink">Spark + Flink</a>
+  <a href="/patterns">Graph Patterns</a>
+  <a href="/slides">Slides</a>
+  <a href="/powerbi">Power BI</a>
+  <span class="gnav-spacer"></span>
+  <span class="gnav-tag">GraphSAGE + Claude</span>
+</nav>
 <div class="shell">
 
 <!-- Header -->
@@ -437,8 +459,8 @@ function toggle(idx) {
 
 // ── Live feed ────────────────────────────────────────────────────────────────
 
-// 本地开发（http.server :8080）→ 直接调 localhost:8091；Azure nginx → 相对路径 /batch
-const BATCH_API = location.hostname === 'localhost' ? 'http://localhost:8091/batch' : '/batch';
+// Always use the demo app's own /batch endpoint (it proxies to batch-server with mock fallback)
+const BATCH_API = '/batch';
 const INTERVAL  = 60; // seconds
 let countdown   = INTERVAL;
 let timerHandle = null;

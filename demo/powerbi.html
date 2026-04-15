@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Power BI · FraudShield</title>
+<style>
+  :root {
+    --bg: #1b1e2b;
+    --surface: #252836;
+    --surface2: #2e3145;
+    --border: #363a4f;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --text3: #64748b;
+    --gold: #f5c542;
+    --accent: #6366f1;
+    --green: #34d399;
+    --red: #f87171;
+    --orange: #fb923c;
+    --pbi-yellow: #f2c811;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── Global Nav ── */
+  .gnav{position:sticky;top:0;height:44px;display:flex;align-items:center;gap:6px;padding:0 18px;background:rgba(27,30,43,.95);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);z-index:999;font:500 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  .gnav-brand{color:var(--pbi-yellow);text-decoration:none;font-weight:700;margin-right:8px;display:flex;align-items:center;gap:5px}
+  .gnav a{color:var(--text2);text-decoration:none;padding:4px 10px;border-radius:6px;transition:.15s}
+  .gnav a:hover{color:var(--text);background:rgba(255,255,255,.06)}
+  .gnav a.active{color:var(--pbi-yellow);background:rgba(245,197,66,.1)}
+  .gnav-spacer{flex:1}
+  .gnav-tag{font-size:11px;color:var(--text3);letter-spacing:.5px}
+
+  /* ── Layout ── */
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px 20px; }
+
+  /* ── Header ── */
+  .page-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+  .pbi-logo { width: 40px; height: 40px; background: linear-gradient(135deg, #f2c811, #e8a900); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800; color: #1b1e2b; }
+  .page-header h1 { font-size: 22px; font-weight: 700; }
+  .page-header .sub { font-size: 13px; color: var(--text2); margin-top: 2px; }
+  .status-badge { margin-left: auto; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .status-badge.connected { background: rgba(52,211,153,.12); color: var(--green); border: 1px solid rgba(52,211,153,.25); }
+  .status-badge.preview { background: rgba(245,197,66,.1); color: var(--pbi-yellow); border: 1px solid rgba(245,197,66,.2); }
+
+  /* ── Tabs ── */
+  .tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 2px solid var(--border); padding-bottom: 0; }
+  .tab { padding: 10px 18px; font-size: 13px; font-weight: 600; color: var(--text3); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: .2s; }
+  .tab:hover { color: var(--text2); }
+  .tab.active { color: var(--pbi-yellow); border-bottom-color: var(--pbi-yellow); }
+
+  /* ── Cards ── */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .card-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text3); margin-bottom: 14px; }
+
+  /* ── KPI Row ── */
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+  .kpi { text-align: center; }
+  .kpi .val { font-size: 28px; font-weight: 800; line-height: 1.2; }
+  .kpi .label { font-size: 11px; color: var(--text3); margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+  .kpi.gold .val { color: var(--pbi-yellow); }
+  .kpi.red .val { color: var(--red); }
+  .kpi.green .val { color: var(--green); }
+  .kpi.accent .val { color: var(--accent); }
+
+  /* ── Grid layouts ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+
+  /* ── Chart placeholder ── */
+  .chart-area { position: relative; height: 220px; }
+  .chart-area canvas { width: 100% !important; height: 100% !important; }
+
+  /* ── Table ── */
+  .pbi-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .pbi-table th { text-align: left; padding: 8px 12px; color: var(--text3); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; border-bottom: 2px solid var(--pbi-yellow); font-size: 10px; }
+  .pbi-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .pbi-table tr:hover td { background: rgba(255,255,255,.02); }
+  .risk-high { color: var(--red); font-weight: 700; }
+  .risk-medium { color: var(--orange); font-weight: 600; }
+  .risk-low { color: var(--green); }
+
+  /* ── Embed area ── */
+  .embed-frame { width: 100%; height: 600px; border: none; border-radius: 12px; background: var(--surface); }
+
+  /* ── Connection guide ── */
+  .guide { margin-bottom: 20px; }
+  .guide-step { display: flex; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+  .guide-step:last-child { border-bottom: none; }
+  .step-num { width: 28px; height: 28px; border-radius: 50%; background: var(--pbi-yellow); color: var(--bg); font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .step-text h4 { font-size: 14px; margin-bottom: 4px; }
+  .step-text p { font-size: 12px; color: var(--text2); line-height: 1.5; }
+  .step-text code { background: var(--surface2); padding: 2px 8px; border-radius: 4px; font-family: "SF Mono", Menlo, monospace; font-size: 11px; color: var(--pbi-yellow); }
+
+  /* ── Endpoint list ── */
+  .endpoint { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; margin-bottom: 8px; background: var(--surface2); font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
+  .endpoint .method { padding: 3px 8px; border-radius: 4px; font-weight: 700; font-size: 10px; background: rgba(52,211,153,.15); color: var(--green); }
+  .endpoint .url { color: var(--text); }
+  .endpoint .desc { margin-left: auto; font-family: -apple-system, sans-serif; color: var(--text3); font-size: 11px; }
+
+  /* ── Tab panels ── */
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ── Watermark ── */
+  .watermark { position: fixed; bottom: 14px; right: 20px; font-size: 10px; color: var(--text3); opacity: .5; }
+
+  @media(max-width:800px) {
+    .kpi-row { grid-template-columns: repeat(2,1fr); }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    .gnav { overflow-x: auto; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="gnav">
+  <a href="/" class="gnav-brand"><span>◆</span> FraudShield</a>
+  <a href="/">Dashboard</a>
+  <a href="/live">Live Feed</a>
+  <a href="/spark-flink">Spark + Flink</a>
+  <a href="/patterns">Graph Patterns</a>
+  <a href="/slides">Slides</a>
+  <a href="/powerbi" class="active">Power BI</a>
+  <span class="gnav-spacer"></span>
+  <span class="gnav-tag">ANALYTICS</span>
+</nav>
+
+<div class="container">
+
+  <!-- Header -->
+  <div class="page-header">
+    <div class="pbi-logo">P</div>
+    <div>
+      <h1>Power BI Analytics</h1>
+      <div class="sub">Fraud detection insights · Real-time data endpoints</div>
+    </div>
+    <span class="status-badge preview" id="statusBadge">● DATA PREVIEW</span>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('overview')">Overview</div>
+    <div class="tab" onclick="switchTab('embed')">Embedded Report</div>
+    <div class="tab" onclick="switchTab('connect')">Connect Power BI</div>
+    <div class="tab" onclick="switchTab('endpoints')">Data Endpoints</div>
+  </div>
+
+  <!-- ===== TAB 1: Overview (data preview) ===== -->
+  <div class="panel active" id="panel-overview">
+
+    <div class="kpi-row" id="kpiRow">
+      <div class="card kpi gold"><div class="val" id="kpiTotal">—</div><div class="label">Total Transactions</div></div>
+      <div class="card kpi red"><div class="val" id="kpiFraud">—</div><div class="label">Fraud Detected</div></div>
+      <div class="card kpi green"><div class="val" id="kpiRate">—</div><div class="label">Fraud Rate</div></div>
+      <div class="card kpi accent"><div class="val" id="kpiAmount">—</div><div class="label">Total Amount</div></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Fraud by Transaction Type</div>
+        <div class="chart-area"><canvas id="chartType"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Risk Distribution</div>
+        <div class="chart-area"><canvas id="chartRisk"></canvas></div>
+      </div>
+    </div>
+
+    <div class="grid-3">
+      <div class="card">
+        <div class="card-title">Amount Distribution (Top Fraud)</div>
+        <div class="chart-area"><canvas id="chartAmount"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">GNN Probability Scatter</div>
+        <div class="chart-area"><canvas id="chartScatter"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Hourly Trend</div>
+        <div class="chart-area"><canvas id="chartTrend"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Recent High-Risk Transactions</div>
+      <table class="pbi-table">
+        <thead><tr><th>TX ID</th><th>Source</th><th>Dest</th><th>Amount</th><th>Type</th><th>GNN Score</th><th>Risk</th></tr></thead>
+        <tbody id="txTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== TAB 2: Embedded Report ===== -->
+  <div class="panel" id="panel-embed">
+    <div class="card" id="embedContainer">
+      <div class="card-title">Power BI Embedded Report</div>
+      <div id="embedMsg" style="text-align:center;padding:60px 20px;color:var(--text3)">
+        <div style="font-size:48px;margin-bottom:16px">📊</div>
+        <h3 style="color:var(--text);margin-bottom:8px">No Embedded Report Configured</h3>
+        <p style="max-width:500px;margin:0 auto;line-height:1.6;font-size:13px">
+          Set the following environment variables to embed a published Power BI report:<br><br>
+          <code style="background:var(--surface2);padding:4px 10px;border-radius:4px;color:var(--pbi-yellow);font-size:12px">
+            POWERBI_EMBED_URL<br>POWERBI_REPORT_ID<br>POWERBI_ACCESS_TOKEN
+          </code>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== TAB 3: Connection Guide ===== -->
+  <div class="panel" id="panel-connect">
+    <div class="card guide">
+      <div class="card-title">Connect Power BI Desktop</div>
+      <div class="guide-step">
+        <div class="step-num">1</div>
+        <div class="step-text">
+          <h4>Open Power BI Desktop</h4>
+          <p>Click <b>Get Data</b> → <b>Web</b> to add a REST API data source.</p>
+        </div>
+      </div>
+      <div class="guide-step">
+        <div class="step-num">2</div>
+        <div class="step-text">
+          <h4>Enter the Data Endpoint URL</h4>
+          <p>Use one of the endpoints below, e.g.<br><code id="guideUrl">http://localhost:8081/api/powerbi/transactions</code></p>
+        </div>
+      </div>
+      <div class="guide-step">
+        <div class="step-num">3</div>
+        <div class="step-text">
+          <h4>Transform & Load</h4>
+          <p>Power BI will parse the JSON array. Use <b>Power Query Editor</b> to expand columns, set data types (Amount → Decimal, Timestamp → DateTime).</p>
+        </div>
+      </div>
+      <div class="guide-step">
+        <div class="step-num">4</div>
+        <div class="step-text">
+          <h4>Build Visuals</h4>
+          <p>Recommended visuals: <b>Matrix</b> (risk × type), <b>Scatter</b> (src_prob vs dst_prob, size=amount), <b>Line chart</b> (fraud trend by step), <b>Card</b> (total fraud count & rate).</p>
+        </div>
+      </div>
+      <div class="guide-step">
+        <div class="step-num">5</div>
+        <div class="step-text">
+          <h4>Schedule Refresh</h4>
+          <p>Publish to Power BI Service and configure a <b>Scheduled Refresh</b> using a data gateway for automatic updates.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">Power Query M Template</div>
+      <pre style="background:var(--surface2);padding:16px;border-radius:8px;font-size:12px;line-height:1.6;overflow-x:auto;color:var(--text2)"><code>let
+    Source = Json.Document(
+        Web.Contents("<span id="mqUrl">http://localhost:8081</span>/api/powerbi/transactions")
+    ),
+    ToTable = Table.FromList(Source, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
+    Expanded = Table.ExpandRecordColumn(ToTable, "Column1",
+        {"tx_id","timestamp","step","source","destination","amount",
+         "type","src_fraud_prob","dst_fraud_prob","risk_level",
+         "is_fraud_predicted","label"}),
+    TypedCols = Table.TransformColumnTypes(Expanded, {
+        {"amount", type number},
+        {"src_fraud_prob", type number},
+        {"dst_fraud_prob", type number},
+        {"step", Int64.Type},
+        {"is_fraud_predicted", type logical},
+        {"label", Int64.Type}
+    })
+in
+    TypedCols</code></pre>
+    </div>
+  </div>
+
+  <!-- ===== TAB 4: Data Endpoints ===== -->
+  <div class="panel" id="panel-endpoints">
+    <div class="card">
+      <div class="card-title">Available REST API Endpoints</div>
+      <div class="endpoint"><span class="method">GET</span><span class="url">/api/powerbi/transactions</span><span class="desc">All transactions (flat table, PBI-ready)</span></div>
+      <div class="endpoint"><span class="method">GET</span><span class="url">/api/powerbi/summary</span><span class="desc">Aggregated stats by type & risk level</span></div>
+      <div class="endpoint"><span class="method">GET</span><span class="url">/api/powerbi/timeseries</span><span class="desc">Time series data by step</span></div>
+      <div class="endpoint"><span class="method">GET</span><span class="url">/api/powerbi/fraud_nodes</span><span class="desc">High-risk accounts & GNN scores</span></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">Live API Response Preview</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <button onclick="previewEndpoint('transactions')" class="ep-btn" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);cursor:pointer;font-size:12px">transactions</button>
+        <button onclick="previewEndpoint('summary')" class="ep-btn" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);cursor:pointer;font-size:12px">summary</button>
+        <button onclick="previewEndpoint('timeseries')" class="ep-btn" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);cursor:pointer;font-size:12px">timeseries</button>
+        <button onclick="previewEndpoint('fraud_nodes')" class="ep-btn" style="padding:6px 14px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);cursor:pointer;font-size:12px">fraud_nodes</button>
+      </div>
+      <pre id="apiPreview" style="background:var(--surface2);padding:16px;border-radius:8px;font-size:11px;line-height:1.5;overflow-x:auto;max-height:400px;overflow-y:auto;color:var(--green)">// Click an endpoint above to preview</pre>
+    </div>
+  </div>
+
+</div>
+
+<div class="watermark">Power BI Integration · FraudShield</div>
+
+<script>
+/* ── Tab switching ── */
+function switchTab(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+  event.target.classList.add('active');
+}
+
+/* ── Data ── */
+let txData = [];
+let summaryData = [];
+
+async function loadData() {
+  try {
+    const res = await fetch('/api/powerbi/transactions');
+    if (res.ok) {
+      txData = await res.json();
+      document.getElementById('statusBadge').className = 'status-badge connected';
+      document.getElementById('statusBadge').textContent = '● LIVE DATA';
+    } else throw new Error();
+  } catch {
+    txData = generateMockData();
+  }
+  try {
+    const res2 = await fetch('/api/powerbi/summary');
+    if (res2.ok) summaryData = await res2.json();
+  } catch { /* use computed */ }
+  renderAll();
+}
+
+function generateMockData() {
+  const types = ['CASH_OUT','TRANSFER','PAYMENT','CASH_IN','DEBIT'];
+  const risks = ['HIGH','MEDIUM','LOW','LOW','LOW','LOW','LOW'];
+  const data = [];
+  for (let i = 0; i < 200; i++) {
+    const r = risks[Math.floor(Math.random()*risks.length)];
+    const isFraud = r === 'HIGH';
+    const type = isFraud ? types[Math.floor(Math.random()*2)] : types[Math.floor(Math.random()*5)];
+    const amt = isFraud ? 50000 + Math.random()*350000 : 100 + Math.random()*15000;
+    const sp = isFraud ? .6 + Math.random()*.35 : Math.random()*.2;
+    const dp = isFraud ? .45 + Math.random()*.4 : Math.random()*.15;
+    const step = 1 + Math.floor(Math.random()*30);
+    data.push({
+      tx_id: Math.random().toString(16).slice(2,18),
+      timestamp: new Date(Date.now() - Math.random()*86400000*7).toISOString(),
+      step, source: 'C'+Math.floor(1e8+Math.random()*9e8),
+      destination: 'C'+Math.floor(1e8+Math.random()*9e8),
+      amount: Math.round(amt*100)/100, type,
+      src_fraud_prob: Math.round(sp*1e4)/1e4,
+      dst_fraud_prob: Math.round(dp*1e4)/1e4,
+      risk_level: r, is_fraud_predicted: isFraud, label: isFraud?1:0
+    });
+  }
+  return data;
+}
+
+/* ── KPIs ── */
+function renderKPIs() {
+  const total = txData.length;
+  const fraud = txData.filter(t=>t.is_fraud_predicted).length;
+  const rate = total ? (fraud/total*100).toFixed(1) : 0;
+  const amount = txData.reduce((s,t)=>s+t.amount,0);
+  document.getElementById('kpiTotal').textContent = total.toLocaleString();
+  document.getElementById('kpiFraud').textContent = fraud.toLocaleString();
+  document.getElementById('kpiRate').textContent = rate + '%';
+  document.getElementById('kpiAmount').textContent = '$' + (amount/1e6).toFixed(2) + 'M';
+}
+
+/* ── Charts (Canvas 2D) ── */
+function drawBarChart(canvasId, labels, values, colors) {
+  const c = document.getElementById(canvasId);
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = c.parentElement.getBoundingClientRect();
+  c.width = rect.width * dpr; c.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const pad = {t:10,r:10,b:40,l:50};
+  const max = Math.max(...values, 1);
+  const barW = (W-pad.l-pad.r)/labels.length * .6;
+  const gap = (W-pad.l-pad.r)/labels.length;
+
+  ctx.strokeStyle = '#363a4f'; ctx.lineWidth = .5;
+  for (let i=0;i<=4;i++) {
+    const y = pad.t + (H-pad.t-pad.b)*(1-i/4);
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    ctx.fillStyle='#64748b'; ctx.font='10px sans-serif'; ctx.textAlign='right';
+    ctx.fillText(Math.round(max*i/4).toLocaleString(), pad.l-6, y+3);
+  }
+
+  labels.forEach((l,i) => {
+    const x = pad.l + i*gap + gap/2 - barW/2;
+    const h = values[i]/max*(H-pad.t-pad.b);
+    const y = H-pad.b-h;
+    const grad = ctx.createLinearGradient(x,y,x,H-pad.b);
+    grad.addColorStop(0, colors[i%colors.length]);
+    grad.addColorStop(1, colors[i%colors.length]+'44');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.roundRect(x,y,barW,h,4); ctx.fill();
+    ctx.fillStyle='#94a3b8'; ctx.font='10px sans-serif'; ctx.textAlign='center';
+    ctx.fillText(l, pad.l + i*gap + gap/2, H-pad.b+16);
+  });
+}
+
+function drawDonut(canvasId, labels, values, colors) {
+  const c = document.getElementById(canvasId);
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = c.parentElement.getBoundingClientRect();
+  c.width = rect.width * dpr; c.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const cx = W*.35, cy = H/2, r = Math.min(cx,cy)*.7, inner = r*.55;
+  const total = values.reduce((a,b)=>a+b,0) || 1;
+  let angle = -Math.PI/2;
+
+  values.forEach((v,i) => {
+    const sweep = v/total * Math.PI*2;
+    ctx.beginPath(); ctx.moveTo(cx+Math.cos(angle)*inner, cy+Math.sin(angle)*inner);
+    ctx.arc(cx,cy,r,angle,angle+sweep);
+    ctx.arc(cx,cy,inner,angle+sweep,angle,true);
+    ctx.closePath();
+    ctx.fillStyle = colors[i%colors.length]; ctx.fill();
+    angle += sweep;
+  });
+
+  ctx.fillStyle='var(--surface)'; ctx.beginPath(); ctx.arc(cx,cy,inner-1,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#e2e8f0'; ctx.font='bold 18px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(total.toLocaleString(), cx, cy-6);
+  ctx.fillStyle='#64748b'; ctx.font='10px sans-serif';
+  ctx.fillText('TOTAL', cx, cy+12);
+
+  let ly = 20;
+  labels.forEach((l,i) => {
+    ctx.fillStyle = colors[i]; ctx.fillRect(W*.72, ly, 10, 10);
+    ctx.fillStyle='#94a3b8'; ctx.font='11px sans-serif'; ctx.textAlign='left';
+    ctx.fillText(`${l}  (${values[i]})`, W*.72+16, ly+9);
+    ly += 22;
+  });
+}
+
+function drawScatter(canvasId, points) {
+  const c = document.getElementById(canvasId);
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = c.parentElement.getBoundingClientRect();
+  c.width = rect.width * dpr; c.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const pad = {t:10,r:10,b:30,l:40};
+  const plotW = W-pad.l-pad.r, plotH = H-pad.t-pad.b;
+
+  ctx.strokeStyle='#363a4f'; ctx.lineWidth=.5;
+  for (let i=0;i<=4;i++) {
+    const y = pad.t+plotH*(1-i/4);
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    ctx.fillStyle='#64748b'; ctx.font='9px sans-serif'; ctx.textAlign='right';
+    ctx.fillText((i*.25).toFixed(2), pad.l-4, y+3);
+  }
+  for (let i=0;i<=4;i++) {
+    const x = pad.l+plotW*i/4;
+    ctx.beginPath(); ctx.moveTo(x,pad.t); ctx.lineTo(x,H-pad.b); ctx.stroke();
+    ctx.fillStyle='#64748b'; ctx.font='9px sans-serif'; ctx.textAlign='center';
+    ctx.fillText((i*.25).toFixed(2), x, H-pad.b+14);
+  }
+
+  points.forEach(p => {
+    const x = pad.l + p.x * plotW;
+    const y = pad.t + (1-p.y) * plotH;
+    const sz = 2 + Math.sqrt(p.amount/50000)*4;
+    ctx.globalAlpha = .6;
+    ctx.fillStyle = p.fraud ? '#f87171' : '#6366f1';
+    ctx.beginPath(); ctx.arc(x,y,Math.min(sz,10),0,Math.PI*2); ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+}
+
+function drawLine(canvasId, labels, values) {
+  const c = document.getElementById(canvasId);
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = c.parentElement.getBoundingClientRect();
+  c.width = rect.width * dpr; c.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const pad = {t:10,r:10,b:30,l:40};
+  const max = Math.max(...values,1);
+
+  ctx.strokeStyle='#363a4f'; ctx.lineWidth=.5;
+  for (let i=0;i<=4;i++) {
+    const y = pad.t+(H-pad.t-pad.b)*(1-i/4);
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+  }
+
+  const pts = values.map((v,i) => ({
+    x: pad.l + i/(labels.length-1||1)*(W-pad.l-pad.r),
+    y: pad.t + (1-v/max)*(H-pad.t-pad.b)
+  }));
+
+  const grad = ctx.createLinearGradient(0,pad.t,0,H-pad.b);
+  grad.addColorStop(0,'rgba(245,197,66,.25)'); grad.addColorStop(1,'transparent');
+  ctx.beginPath(); ctx.moveTo(pts[0].x, H-pad.b);
+  pts.forEach(p=>ctx.lineTo(p.x,p.y));
+  ctx.lineTo(pts[pts.length-1].x,H-pad.b); ctx.closePath();
+  ctx.fillStyle=grad; ctx.fill();
+
+  ctx.strokeStyle='#f5c542'; ctx.lineWidth=2; ctx.beginPath();
+  pts.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));
+  ctx.stroke();
+
+  ctx.fillStyle='#64748b'; ctx.font='9px sans-serif'; ctx.textAlign='center';
+  labels.forEach((l,i) => { if (i%Math.ceil(labels.length/8)===0) ctx.fillText(l, pts[i].x, H-pad.b+14); });
+}
+
+/* ── Render all ── */
+function renderAll() {
+  renderKPIs();
+
+  // By type bar chart
+  const byType = {};
+  txData.forEach(t => { byType[t.type] = (byType[t.type]||0) + (t.is_fraud_predicted?1:0); });
+  const typeLabels = Object.keys(byType);
+  drawBarChart('chartType', typeLabels, typeLabels.map(k=>byType[k]),
+    ['#f2c811','#fb923c','#6366f1','#34d399','#f87171']);
+
+  // Risk donut
+  const byRisk = {HIGH:0, MEDIUM:0, LOW:0};
+  txData.forEach(t => byRisk[t.risk_level]++);
+  drawDonut('chartRisk', ['HIGH','MEDIUM','LOW'], [byRisk.HIGH,byRisk.MEDIUM,byRisk.LOW],
+    ['#f87171','#fb923c','#34d399']);
+
+  // Amount bar (top fraud by amount)
+  const fraudTx = txData.filter(t=>t.is_fraud_predicted).sort((a,b)=>b.amount-a.amount).slice(0,8);
+  drawBarChart('chartAmount',
+    fraudTx.map(t=>t.tx_id.slice(0,6)),
+    fraudTx.map(t=>t.amount),
+    ['#f87171','#fb923c','#f2c811','#6366f1','#34d399','#a78bfa','#f472b6','#38bdf8']);
+
+  // Scatter
+  const scatterPts = txData.slice(0,100).map(t=>({x:t.src_fraud_prob,y:t.dst_fraud_prob,amount:t.amount,fraud:t.is_fraud_predicted}));
+  drawScatter('chartScatter', scatterPts);
+
+  // Trend line by step
+  const byStep = {};
+  txData.forEach(t => { byStep[t.step] = (byStep[t.step]||0)+1; });
+  const steps = Object.keys(byStep).sort((a,b)=>a-b);
+  drawLine('chartTrend', steps, steps.map(s=>byStep[s]));
+
+  // Table
+  const highRisk = txData.filter(t=>t.risk_level!=='LOW').sort((a,b)=>b.src_fraud_prob-a.src_fraud_prob).slice(0,15);
+  const tbody = document.getElementById('txTable');
+  tbody.innerHTML = highRisk.map(t => `<tr>
+    <td style="font-family:monospace;font-size:11px">${t.tx_id.slice(0,12)}…</td>
+    <td>${t.source}</td><td>${t.destination}</td>
+    <td style="text-align:right;font-weight:600">$${t.amount.toLocaleString()}</td>
+    <td>${t.type}</td>
+    <td style="font-family:monospace">${t.src_fraud_prob.toFixed(4)}</td>
+    <td class="risk-${t.risk_level.toLowerCase()}">${t.risk_level}</td>
+  </tr>`).join('');
+}
+
+/* ── Endpoint preview ── */
+async function previewEndpoint(name) {
+  const el = document.getElementById('apiPreview');
+  el.textContent = '// Loading...';
+  try {
+    const res = await fetch('/api/powerbi/' + name);
+    const data = await res.json();
+    el.textContent = JSON.stringify(data.slice?data.slice(0,5):data, null, 2)
+      + (data.length > 5 ? `\n\n// ... ${data.length - 5} more rows` : '');
+  } catch {
+    el.textContent = '// Endpoint not reachable — showing mock structure';
+    const mock = { transactions: [{tx_id:'...',amount:0,type:'CASH_OUT',risk_level:'HIGH'}],
+      summary: [{type:'CASH_OUT',risk:'HIGH',count:12,total_amount:1234567}],
+      timeseries: [{step:1,count:45,fraud_count:3,avg_amount:5432}],
+      fraud_nodes: [{account:'C123',avg_prob:0.82,tx_count:5,total_amount:98765}] };
+    el.textContent = JSON.stringify(mock[name]||mock.transactions, null, 2);
+  }
+}
+
+/* ── Check for embed config ── */
+async function checkEmbed() {
+  try {
+    const res = await fetch('/api/powerbi/embed_config');
+    if (res.ok) {
+      const cfg = await res.json();
+      if (cfg.embed_url) {
+        const container = document.getElementById('embedContainer');
+        container.innerHTML = `<iframe class="embed-frame" src="${cfg.embed_url}" allowfullscreen></iframe>`;
+        document.getElementById('statusBadge').className = 'status-badge connected';
+        document.getElementById('statusBadge').textContent = '● EMBEDDED';
+      }
+    }
+  } catch { /* no embed config */ }
+}
+
+/* ── Init ── */
+loadData();
+checkEmbed();
+window.addEventListener('resize', () => { if (txData.length) renderAll(); });
+</script>
+</body>
+</html>

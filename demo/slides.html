@@ -6,6 +6,15 @@
 <title>Multi-Agent Fraud Detection</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ── Global Nav ── */
+  .gnav{position:fixed;top:0;left:0;right:0;height:42px;display:flex;align-items:center;gap:6px;padding:0 16px;background:rgba(15,17,23,.92);backdrop-filter:blur(8px);border-bottom:1px solid #1e2030;z-index:9999;font:500 13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+  .gnav-brand{color:#818cf8;text-decoration:none;font-weight:700;margin-right:8px;display:flex;align-items:center;gap:5px}
+  .gnav a{color:#94a3b8;text-decoration:none;padding:4px 10px;border-radius:6px;transition:.15s}
+  .gnav a:hover{color:#e2e8f0;background:rgba(255,255,255,.06)}
+  .gnav a.active{color:#a5b4fc;background:rgba(99,102,241,.15)}
+  .gnav-spacer{flex:1}
+  .gnav-tag{font-size:11px;color:#475569;letter-spacing:.5px}
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     background: #0a0c14; color: #e2e8f0;
@@ -186,7 +195,20 @@
 </style>
 </head>
 <body>
-<div id="deck">
+
+<nav class="gnav">
+  <a href="/" class="gnav-brand"><span>◆</span> FraudShield</a>
+  <a href="/">Dashboard</a>
+  <a href="/live">Live Feed</a>
+  <a href="/spark-flink">Spark + Flink</a>
+  <a href="/patterns">Graph Patterns</a>
+  <a href="/slides" class="active">Slides</a>
+  <a href="/powerbi">Power BI</a>
+  <span class="gnav-spacer"></span>
+  <span class="gnav-tag">PRESENTATION</span>
+</nav>
+
+<div id="deck" style="padding-top:42px">
 
   <!-- 1. Title -->
   <div class="slide slide-1 active">
